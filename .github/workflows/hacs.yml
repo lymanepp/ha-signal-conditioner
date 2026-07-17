@@ -3,13 +3,26 @@ name: HACS
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions: {}
 
 jobs:
   hacs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: hacs/action@main
+
+      # Keep exercising the official validator so the upstream repair is noticed.
+      # It is temporarily non-blocking because hacs/integration#5252 incorrectly
+      # rejects valid hacs.json and integration manifest files.
+      - name: Official HACS validation
+        continue-on-error: true
+        uses: hacs/action@main
         with:
           category: integration
-          ignore: brands
+
+      - name: Validate HACS repository metadata
+        run: python scripts/validate_hacs.py
