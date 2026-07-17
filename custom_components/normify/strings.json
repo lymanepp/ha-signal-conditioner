@@ -1,0 +1,56 @@
+{
+  "title": "Normify",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Create a Normified sensor",
+        "description": "Create a calibrated sensor from another sensor's state or attribute.",
+        "data": {
+          "name": "Name",
+          "source": "Source sensor",
+          "attribute": "Source attribute",
+          "data_points_text": "Calibration points",
+          "degree": "Polynomial degree",
+          "precision": "Precision",
+          "unit_of_measurement": "Unit of measurement",
+          "device_class": "Device class",
+          "state_class": "State class",
+          "hide_source": "Hide source entity"
+        },
+        "data_description": {
+          "attribute": "Leave blank to use the source entity state.",
+          "data_points_text": "Enter one input, output pair per line.",
+          "hide_source": "Cannot be used when reading a source attribute."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Normified sensor",
+        "description": "Update the source, calibration, metadata, or precision.",
+        "data": {
+          "name": "Name",
+          "source": "Source sensor",
+          "attribute": "Source attribute",
+          "data_points_text": "Calibration points",
+          "degree": "Polynomial degree",
+          "precision": "Precision",
+          "unit_of_measurement": "Unit of measurement",
+          "device_class": "Device class",
+          "state_class": "State class",
+          "hide_source": "Hide source entity"
+        },
+        "data_description": {
+          "attribute": "Leave blank to use the source entity state.",
+          "data_points_text": "Enter one input, output pair per line.",
+          "hide_source": "Cannot be used when reading a source attribute."
+        }
+      }
+    },
+    "error": {
+      "invalid_calibration": "The calibration configuration is invalid. Check the point format, polynomial degree, and distinct input values."
+    },
+    "abort": {
+      "already_configured": "This Normify helper is already configured.",
+      "reconfigure_successful": "The Normify helper was reconfigured successfully."
+    }
+  }
+}

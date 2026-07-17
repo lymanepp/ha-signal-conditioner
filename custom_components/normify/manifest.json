@@ -1,0 +1,16 @@
+{
+  "domain": "normify",
+  "name": "Normify",
+  "codeowners": [
+    "@lymanepp"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/lymanepp/ha-normify",
+  "integration_type": "helper",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/lymanepp/ha-normify/issues",
+  "requirements": [
+    "numpy==2.3.2"
+  ],
+  "version": "0.2.0"
+}
