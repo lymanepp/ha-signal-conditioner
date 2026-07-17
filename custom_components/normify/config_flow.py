@@ -160,6 +160,7 @@ def _conditioning_schema(defaults: Mapping[str, Any]) -> vol.Schema:
 
 
 def _publication_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    print(defaults)
     return vol.Schema(
         {
             vol.Required(

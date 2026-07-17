@@ -1,0 +1,14 @@
+homeassistant:
+
+http:
+
+frontend:
+
+config:
+
+api:
+
+logger:
+  default: info
+  logs:
+    custom_components.normify: debug

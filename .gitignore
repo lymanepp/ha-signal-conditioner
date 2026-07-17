@@ -1,7 +1,20 @@
+# artifacts
 __pycache__
-pythonenv*
-venv
-.venv
+.pytest*
+*.egg-info
+*/build/*
+*/dist/*
+
+# project tooling
+.mypy_cache/
+.ruff_cache/
 .coverage
-.idea
-config
+coverage.xml
+htmlcov/
+
+# editor-local settings (the template configures VS Code in .devcontainer.json)
+.vscode
+
+# Home Assistant configuration
+config/*
+!config/configuration.yaml

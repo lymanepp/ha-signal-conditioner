@@ -59,3 +59,13 @@ file.
 ## License
 
 By contributing, you agree that your contributions will be licensed under AGPL-3.0.
+## Development container
+
+This repository follows `ludeeus/integration_blueprint`. Rebuild/open the repository in its Dev Container, then start the development Home Assistant instance with:
+
+```bash
+scripts/develop
+```
+
+The template intentionally does not define a project-specific F5 launch configuration. Home Assistant is started through `scripts/develop`, as prescribed by the template.
+

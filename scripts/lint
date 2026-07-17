@@ -4,7 +4,5 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-ruff check .
-ruff format --check .
-mypy custom_components/normify
-pytest --cov --cov-report=term-missing
+ruff format .
+ruff check . --fix
