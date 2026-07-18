@@ -9,46 +9,32 @@ CONF_DATA_POINTS = "data_points"
 CONF_DATA_POINTS_TEXT = "data_points_text"
 CONF_DEGREE = "degree"
 CONF_HIDE_SOURCE = "hide_source"
-CONF_PRECISION = "precision"
-CONF_REJECT_VALUES = "reject_values"
-CONF_REJECT_VALUES_TEXT = "reject_values_text"
+
+CONF_ENABLE_LIMITS = "enable_limits"
+CONF_ENABLE_CALIBRATION = "enable_calibration"
+CONF_ENABLE_WINDOW = "enable_window"
+CONF_ENABLE_ROUNDING = "enable_rounding"
+
 CONF_MINIMUM = "minimum"
 CONF_MAXIMUM = "maximum"
-CONF_RANGE_ACTION = "range_action"
-CONF_MAXIMUM_CHANGE = "maximum_change"
-CONF_MAXIMUM_CHANGE_PER_SECOND = "maximum_change_per_second"
-CONF_OUTLIER_WINDOW = "outlier_window"
-CONF_OUTLIER_RADIUS = "outlier_radius"
-CONF_OUTLIER_ACTION = "outlier_action"
-CONF_SCALE = "scale"
-CONF_OFFSET = "offset"
-CONF_MEDIAN_WINDOW = "median_window"
-CONF_MOVING_AVERAGE_WINDOW = "moving_average_window"
-CONF_EXPONENTIAL_ALPHA = "exponential_alpha"
-CONF_MINIMUM_CHANGE = "minimum_change"
-CONF_MINIMUM_CHANGE_PERCENT = "minimum_change_percent"
-CONF_MINIMUM_INTERVAL = "minimum_interval"
-CONF_MAXIMUM_INTERVAL = "maximum_interval"
-CONF_SAMPLE_THROTTLE = "sample_throttle"
-CONF_STALE_AFTER = "stale_after"
+CONF_REJECT_VALUES = "reject_values"
+CONF_REJECT_VALUES_TEXT = "reject_values_text"
+CONF_PRECISION = "precision"
 
-CONF_CLAMP = "clamp"
+CONF_VALUE_LIMITS = "value_limits"
 CONF_CALIBRATION = "calibration"
-CONF_SMOOTHING = "smoothing"
-CONF_PUBLISH = "publish"
-CONF_METHOD = "method"
 CONF_WINDOW = "window"
-CONF_ALPHA = "alpha"
+CONF_ROUNDING = "rounding"
+CONF_DURATION = "duration"
+CONF_OUTPUT = "output"
+CONF_STATE_CLASS = "state_class"
 
-SMOOTHING_NONE = "none"
-SMOOTHING_MEDIAN = "median"
-SMOOTHING_MOVING_AVERAGE = "moving_average"
-SMOOTHING_EXPONENTIAL = "exponential"
+# Flat config-entry keys used by the runtime.
+CONF_WINDOW_DURATION = "window_duration"
+CONF_WINDOW_OUTPUT = "window_output"
 
-RANGE_ACTION_REJECT = "reject"
-RANGE_ACTION_CLAMP = "clamp"
-OUTLIER_ACTION_REJECT = "reject"
-OUTLIER_ACTION_MEDIAN = "median"
+WINDOW_OUTPUT_MEAN = "mean"
+WINDOW_OUTPUT_LATEST = "latest"
 
 ATTR_ACCEPTED_SAMPLES = "accepted_samples"
 ATTR_COEFFICIENTS = "coefficients"
@@ -63,12 +49,5 @@ ATTR_SOURCE_VALUE = "source_value"
 
 DEFAULT_DEGREE = 1
 DEFAULT_PRECISION = 2
-DEFAULT_RANGE_ACTION = RANGE_ACTION_REJECT
-DEFAULT_OUTLIER_ACTION = OUTLIER_ACTION_REJECT
-DEFAULT_SCALE = 1.0
-DEFAULT_OFFSET = 0.0
-DEFAULT_MEDIAN_WINDOW = 1
-DEFAULT_MOVING_AVERAGE_WINDOW = 1
-DEFAULT_SAMPLE_THROTTLE = 1
 MAX_DEGREE = 7
-MAX_WINDOW_SIZE = 1000
+MAX_WINDOW_SECONDS = 86400

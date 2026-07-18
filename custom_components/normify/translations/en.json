@@ -4,96 +4,93 @@
     "step": {
       "user": {
         "title": "Create a Normified sensor",
-        "description": "Choose the source. Normify inherits unit, device class, state class, and icon whenever the source provides them.",
+        "description": "Choose the source and explicitly select only the conditioning behaviors to include.",
         "data": {
           "source": "Source sensor",
           "name": "Name override",
           "attribute": "Source attribute",
-          "hide_source": "Hide source entity"
+          "hide_source": "Hide source entity",
+          "enable_limits": "Apply custom value limits",
+          "enable_calibration": "Calibrate values",
+          "enable_rounding": "Round output values",
+          "enable_window": "Process readings in a time window"
         },
         "data_description": {
           "name": "Leave blank to derive the name from the source.",
           "attribute": "Leave blank to condition the source state.",
-          "hide_source": "Cannot be used when conditioning an attribute."
-        }
-      },
-      "conditioning": {
-        "title": "Condition the value",
-        "description": "Clamp the physical range, optionally calibrate, and select at most one smoothing method.",
-        "data": {
-          "minimum": "Clamp minimum",
-          "maximum": "Clamp maximum",
-          "data_points_text": "Calibration points",
-          "degree": "Polynomial degree",
-          "scale": "Scale multiplier",
-          "offset": "Offset",
-          "method": "Smoothing method",
-          "window": "Smoothing window",
-          "alpha": "Exponential alpha"
-        },
-        "data_description": {
-          "minimum": "Values below this boundary are clamped to it.",
-          "maximum": "Values above this boundary are clamped to it.",
-          "data_points_text": "Optional raw, corrected pairs, one per line.",
-          "window": "Used by median and moving-average smoothing.",
-          "alpha": "Used only by exponential smoothing."
-        }
-      },
-      "publication": {
-        "title": "Control publication",
-        "description": "Round values, suppress insignificant changes, limit update frequency, and detect stale sources.",
-        "data": {
-          "precision": "Decimal precision",
-          "minimum_change": "Minimum change",
-          "minimum_interval": "Minimum publication interval",
-          "maximum_interval": "Maximum publication interval",
-          "stale_after": "Unavailable after no valid sample"
-        },
-        "data_description": {
-          "minimum_interval": "Zero disables time throttling.",
-          "maximum_interval": "Zero disables forced publication of a held value.",
-          "stale_after": "Zero retains the last valid value indefinitely."
+          "hide_source": "Cannot be used when conditioning an attribute.",
+          "enable_limits": "Configure minimum, maximum, or specific numeric values to reject.",
+          "enable_calibration": "Correct readings using raw and corrected value pairs.",
+          "enable_rounding": "Round the final output to a chosen number of decimal places.",
+          "enable_window": "Collect all accepted readings during one period and publish either their mean or the latest reading when it ends."
         }
       },
       "reconfigure": {
-        "title": "Reconfigure source",
-        "description": "Update the source and optional name override.",
+        "title": "Reconfigure Normify",
+        "description": "Choose the source and explicitly select only the conditioning behaviors to include.",
         "data": {
           "source": "Source sensor",
           "name": "Name override",
           "attribute": "Source attribute",
-          "hide_source": "Hide source entity"
+          "hide_source": "Hide source entity",
+          "enable_limits": "Apply custom value limits",
+          "enable_calibration": "Calibrate values",
+          "enable_rounding": "Round output values",
+          "enable_window": "Process readings in a time window"
         }
       },
-      "reconfigure_conditioning": {
-        "title": "Reconfigure conditioning",
-        "description": "Update clamping, calibration, and the single smoothing method.",
+      "value_limits": {
+        "title": "Reject bad values",
+        "description": "Only the rules entered here are added. Values outside the configured range are rejected.",
         "data": {
-          "minimum": "Clamp minimum",
-          "maximum": "Clamp maximum",
+          "minimum": "Minimum valid value",
+          "maximum": "Maximum valid value",
+          "reject_values_text": "Specific values to reject"
+        },
+        "data_description": {
+          "minimum": "Leave blank for no lower limit.",
+          "maximum": "Leave blank for no upper limit.",
+          "reject_values_text": "Optional comma-separated values, such as -999, 9999."
+        }
+      },
+      "calibration": {
+        "title": "Calibrate values",
+        "description": "Enter raw and corrected value pairs, one pair per line.",
+        "data": {
           "data_points_text": "Calibration points",
-          "degree": "Polynomial degree",
-          "scale": "Scale multiplier",
-          "offset": "Offset",
-          "method": "Smoothing method",
-          "window": "Smoothing window",
-          "alpha": "Exponential alpha"
+          "degree": "Polynomial degree"
+        },
+        "data_description": {
+          "data_points_text": "Example: 38.68, 32",
+          "degree": "Use 1 for ordinary linear calibration."
         }
       },
-      "reconfigure_publication": {
-        "title": "Reconfigure publication",
-        "description": "Update precision, deadband, throttling, heartbeat, and staleness.",
+      "rounding": {
+        "title": "Round output values",
+        "description": "Round only the final conditioned value.",
         "data": {
-          "precision": "Decimal precision",
-          "minimum_change": "Minimum change",
-          "minimum_interval": "Minimum publication interval",
-          "maximum_interval": "Maximum publication interval",
-          "stale_after": "Unavailable after no valid sample"
+          "precision": "Decimal places"
+        }
+      },
+      "review": {
+        "title": "Review pipeline",
+        "description": "{pipeline}"
+      },
+      "window": {
+        "title": "Process readings in a time window",
+        "description": "Collect every accepted, calibrated reading during the period and publish exactly once when it ends.",
+        "data": {
+          "duration": "Window duration",
+          "output": "Published value"
+        },
+        "data_description": {
+          "duration": "The same period controls both collection and publication.",
+          "output": "Choose the arithmetic mean of all readings or the latest accepted reading."
         }
       }
     },
     "error": {
-      "invalid_configuration": "The conditioning configuration is invalid."
+      "invalid_configuration": "The selected behavior configuration is invalid."
     },
     "abort": {
       "already_configured": "This Normify helper is already configured.",
@@ -102,12 +99,10 @@
     }
   },
   "selector": {
-    "smoothing_method": {
+    "window_output": {
       "options": {
-        "none": "None",
-        "median": "Median",
-        "moving_average": "Moving average",
-        "exponential": "Exponential"
+        "mean": "Mean of all readings",
+        "latest": "Latest reading"
       }
     }
   }

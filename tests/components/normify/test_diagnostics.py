@@ -12,7 +12,7 @@ async def test_config_entry_diagnostics(hass: HomeAssistant) -> None:
     """Diagnostics include the entry identity and configuration."""
     entry = ConfigEntry(
         version=1,
-        minor_version=1,
+        minor_version=0,
         domain=DOMAIN,
         title="Garage humidity",
         data={

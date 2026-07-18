@@ -20,6 +20,7 @@ from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_ATTRIBUTE,
     CONF_DEVICE_CLASS,
+    CONF_ICON,
     CONF_NAME,
     CONF_SOURCE,
     CONF_UNIT_OF_MEASUREMENT,
@@ -52,6 +53,7 @@ from .const import (
     ATTR_SOURCE_ATTRIBUTE,
     ATTR_SOURCE_VALUE,
     CONF_HIDE_SOURCE,
+    CONF_STATE_CLASS,
     DOMAIN,
 )
 from .pipeline import ConditioningPipeline, Disposition
@@ -93,9 +95,9 @@ class NormifySensor(SensorEntity):
             SensorDeviceClass | None, config.get(CONF_DEVICE_CLASS)
         )
         self._attr_state_class = cast(
-            SensorStateClass | None, config.get("state_class")
+            SensorStateClass | None, config.get(CONF_STATE_CLASS)
         )
-        self._attr_icon = None
+        self._attr_icon = config.get(CONF_ICON)
         self._attr_available = False
 
         if config.get(CONF_HIDE_SOURCE):
@@ -182,7 +184,7 @@ class NormifySensor(SensorEntity):
             self._inherit_source_metadata(state)
 
         was_available = self.available
-        result = self._pipeline.process(raw_value, state.last_updated)
+        result = self._pipeline.process(raw_value, dt_util.utcnow())
         self._source_value = result.raw_value
         self._conditioned_value = result.conditioned_value
 
@@ -211,11 +213,9 @@ class NormifySensor(SensorEntity):
 
     @callback
     def _handle_source_unavailable(self, *, write_state: bool = True) -> None:
-        """Retain the last value until the configured stale timeout expires."""
+        """Retain the last published value when the source is unavailable."""
         was_available = self.available
         if self._attr_native_value is None:
-            self._attr_available = False
-        elif self._pipeline.is_stale(dt_util.utcnow()):
             self._attr_available = False
         if write_state and was_available != self.available:
             self.async_write_ha_state()
@@ -223,43 +223,29 @@ class NormifySensor(SensorEntity):
 
     @callback
     def _async_timer(self, now: datetime) -> None:
-        """Flush pending publication and enforce stale timeout."""
+        """Close the active window and publish its selected value."""
         self._cancel_timer = None
-        was_available = self.available
         result = self._pipeline.flush(now)
-        write_state = False
 
         if result.disposition is Disposition.PUBLISH:
             self._attr_native_value = result.value
             self._conditioned_value = result.conditioned_value
             self._attr_available = True
-            write_state = True
-
-        if self._pipeline.is_stale(now):
-            self._attr_available = False
-            if was_available:
-                write_state = True
-
-        if write_state:
             self.async_write_ha_state()
+
         self._schedule_timer(result.next_wakeup)
 
     @callback
     def _schedule_timer(self, next_wakeup: datetime | None = None) -> None:
-        """Schedule the earliest publication or staleness deadline."""
+        """Schedule the active window's single publication boundary."""
         if self._cancel_timer is not None:
             self._cancel_timer()
             self._cancel_timer = None
 
         now = dt_util.utcnow()
-        stale_deadline = self._pipeline.stale_deadline() if self.available else None
         deadlines = [
             deadline
-            for deadline in (
-                next_wakeup,
-                self._pipeline.next_wakeup(now),
-                stale_deadline,
-            )
+            for deadline in (next_wakeup, self._pipeline.next_wakeup(now))
             if deadline is not None
         ]
         if not deadlines:

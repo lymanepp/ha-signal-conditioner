@@ -1,93 +1,108 @@
 # Normify
 
-Normify converts a raw Home Assistant sensor value into one dependable canonical
-sensor without requiring a chain of Template, Compensation, Filter, and throttle
-helpers.
+Normify replaces established Home Assistant Template, Compensation, Filter, and
+throttle chains with one canonical sensor.
 
-Normify is the successor to `ha-calibration` and retains its polynomial
-calibration lineage from Home Assistant Core's Compensation integration.
+## Explicit pipeline configuration
 
-## Deliberately simple pipeline
+The first form selects the source and only the behaviors to include:
+
+- Apply custom value limits
+- Calibrate values
+- Process readings in a time window
+- Round output values
+
+Only configuration pages for enabled behaviors are shown. Disabled behaviors
+are not stored or executed.
+
+The pipeline runs in this order:
 
 ```text
 Source state or attribute
-  → reject unknown, unavailable, missing, nonnumeric, NaN, and infinite values
-  → clamp to an optional physical range
-  → optional polynomial calibration, scale, and offset
-  → optional single smoothing method
-  → precision, minimum-change deadband, and time throttling
+  → reject unknown, unavailable, missing, nonnumeric, NaN, and infinity
+  → optional configured value rejection
+  → optional calibration
+  → optional fixed time window selecting mean or latest
+  → optional rounding
   → canonical Home Assistant sensor
 ```
 
-Normify inherits the source unit, device class, state class, and icon whenever
-Home Assistant exposes them. Overrides remain available for unusual sources, but
-normal sensor configurations should not repeat metadata.
+## Configuration choices
+
+### Source
+
+- Source sensor
+- Optional source attribute
+- Optional output-name override
+- Hide source entity
+
+Normify inherits the unit, device class, state class, and icon whenever a
+state-based source provides them. The config flow exposes validated overrides
+for all four values. Explicit overrides win over inherited metadata;
+attribute-based sources inherit none of the parent entity metadata unless an
+override is configured. The same fields are available when reconfiguring an
+existing Normify sensor, and clearing a field removes that override.
+
+### Custom value limits
+
+- Minimum valid value
+- Maximum valid value
+- Specific numeric values to reject
+
+### Calibration
+
+- Raw and corrected value pairs
+- Polynomial degree; omitted degree defaults to `1`
+
+### Time window
+
+```yaml
+window:
+  duration: 60
+  output: mean
+```
+
+A configured window starts with the first accepted reading, collects every
+accepted calibrated reading during the period, and publishes exactly once when
+the period ends.
+
+- `mean` publishes the arithmetic mean of all readings in the period and is the default when `output` is omitted.
+- `latest` publishes the final accepted reading in the period.
+
+Omit `window` to publish every accepted reading immediately.
+
+### Rounding
+
+- Decimal places; an empty `rounding` block defaults to `precision: 2`
+
+Rounding is applied only to the published result.
 
 ## YAML example
 
 ```yaml
 normify:
-  guest_bathroom_humidity:
-    source: sensor.guest_bathroom_humidity_raw
-    hide_source: true
+  garage_humidity:
+    source: sensor.garage_humidity_raw
 
-    clamp:
+    value_limits:
       minimum: 0
       maximum: 100
 
     calibration:
       data_points:
-        - [38.68, 32.0]
-        - [79.89, 75.0]
+        - [50.76, 53.00]
+        - [60.76, 63.00]
       degree: 1
 
-    smoothing:
-      method: median
-      window: 3
+    window:
+      duration: 60
+      output: mean
 
-    publish:
-      minimum_change: 0.2
-      minimum_interval: 10
-      maximum_interval: 300
-
-    precision: 1
-    stale_after: 900
+    rounding:
+      precision: 2
 ```
 
-Time values in YAML are seconds. The UI uses Home Assistant duration selectors.
-
-## Behavior
-
-- `unknown`, `unavailable`, missing attributes, nonnumeric values, `NaN`, and
-  infinity are automatically ignored.
-- Invalid samples never enter calibration or smoothing history.
-- `clamp.minimum` and `clamp.maximum` constrain the raw numeric value rather
-  than rejecting it.
-- Only one smoothing method can be active: `median`, `moving_average`, or
-  `exponential`.
-- `minimum_change` suppresses insignificant canonical updates.
-- `minimum_interval` limits publication frequency.
-- `maximum_interval` releases the newest held value after the configured time.
-- `stale_after` marks the canonical entity unavailable after no valid numeric
-  source sample for the configured time.
-
-## Metadata inheritance
-
-For source-state conditioning, Normify inherits when available:
-
-- Unit of measurement
-- Device class
-- State class
-- Icon
-
-The UI also derives the output name from the source friendly name and removes a
-trailing `Raw`, `Unfiltered`, `Uncalibrated`, or `Source` suffix. A name override
-is optional.
-
-## Backward compatibility
-
-Existing flat calibration-only YAML and existing v0.3 config entries continue to
-load. New configurations should use the concise nested form above.
+YAML and the config flow expose the same behavior set.
 
 ## Installation
 
@@ -98,11 +113,5 @@ Home Assistant configuration directory, restart Home Assistant, and add
 ## Development
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-test.txt
-ruff check .
-ruff format --check .
-mypy custom_components/normify
-pytest --cov
+scripts/develop
 ```

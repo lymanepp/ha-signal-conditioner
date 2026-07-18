@@ -5,15 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.components.sensor.const import (
-    CONF_STATE_CLASS,
-    DEVICE_CLASSES_SCHEMA,
-    STATE_CLASSES_SCHEMA,
-)
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     CONF_ATTRIBUTE,
     CONF_DEVICE_CLASS,
+    CONF_ICON,
     CONF_NAME,
     CONF_SOURCE,
     CONF_UNIQUE_ID,
@@ -25,36 +22,28 @@ from homeassistant.helpers.typing import ConfigType
 
 from .config import flatten_configuration, pipeline_config_from_data
 from .const import (
-    CONF_ALPHA,
     CONF_CALIBRATION,
-    CONF_CLAMP,
     CONF_DATA_POINTS,
     CONF_DEGREE,
+    CONF_DURATION,
     CONF_HIDE_SOURCE,
     CONF_MAXIMUM,
-    CONF_MAXIMUM_INTERVAL,
-    CONF_METHOD,
     CONF_MINIMUM,
-    CONF_MINIMUM_CHANGE,
-    CONF_MINIMUM_INTERVAL,
-    CONF_OFFSET,
+    CONF_OUTPUT,
     CONF_PRECISION,
-    CONF_PUBLISH,
-    CONF_SCALE,
-    CONF_SMOOTHING,
-    CONF_STALE_AFTER,
+    CONF_REJECT_VALUES,
+    CONF_ROUNDING,
+    CONF_STATE_CLASS,
+    CONF_VALUE_LIMITS,
     CONF_WINDOW,
     DEFAULT_DEGREE,
-    DEFAULT_OFFSET,
     DEFAULT_PRECISION,
-    DEFAULT_SCALE,
     DOMAIN,
     MAX_DEGREE,
-    MAX_WINDOW_SIZE,
+    MAX_WINDOW_SECONDS,
     PLATFORMS,
-    SMOOTHING_EXPONENTIAL,
-    SMOOTHING_MEDIAN,
-    SMOOTHING_MOVING_AVERAGE,
+    WINDOW_OUTPUT_LATEST,
+    WINDOW_OUTPUT_MEAN,
 )
 from .pipeline import PipelineConfigurationError
 
@@ -71,43 +60,40 @@ def _validate_normify(value: dict[str, Any]) -> dict[str, Any]:
     return flat
 
 
-_nonnegative_float = vol.All(vol.Coerce(float), vol.Range(min=0))
-_positive_window = vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_WINDOW_SIZE))
+_positive_window = vol.All(
+    vol.Coerce(float), vol.Range(min=0.001, max=MAX_WINDOW_SECONDS)
+)
 
-CLAMP_SCHEMA = vol.Schema(
+VALUE_LIMITS_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_MINIMUM): vol.Coerce(float),
         vol.Optional(CONF_MAXIMUM): vol.Coerce(float),
+        vol.Optional(CONF_REJECT_VALUES): [vol.Coerce(float)],
     }
 )
 CALIBRATION_SCHEMA = vol.Schema(
     {
-        vol.Optional(CONF_DATA_POINTS, default=[]): [
+        vol.Required(CONF_DATA_POINTS): [
             vol.ExactSequence([vol.Coerce(float), vol.Coerce(float)])
         ],
         vol.Optional(CONF_DEGREE, default=DEFAULT_DEGREE): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=MAX_DEGREE)
         ),
-        vol.Optional(CONF_SCALE, default=DEFAULT_SCALE): vol.Coerce(float),
-        vol.Optional(CONF_OFFSET, default=DEFAULT_OFFSET): vol.Coerce(float),
     }
 )
-SMOOTHING_SCHEMA = vol.Schema(
+WINDOW_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_METHOD): vol.In(
-            [SMOOTHING_MEDIAN, SMOOTHING_MOVING_AVERAGE, SMOOTHING_EXPONENTIAL]
-        ),
-        vol.Optional(CONF_WINDOW, default=3): _positive_window,
-        vol.Optional(CONF_ALPHA, default=0.25): vol.All(
-            vol.Coerce(float), vol.Range(min=0.01, max=1)
+        vol.Required(CONF_DURATION): _positive_window,
+        vol.Optional(CONF_OUTPUT, default=WINDOW_OUTPUT_MEAN): vol.In(
+            [WINDOW_OUTPUT_MEAN, WINDOW_OUTPUT_LATEST]
         ),
     }
 )
-PUBLISH_SCHEMA = vol.Schema(
+ROUNDING_SCHEMA = vol.Schema(
     {
-        vol.Optional(CONF_MINIMUM_CHANGE): _nonnegative_float,
-        vol.Optional(CONF_MINIMUM_INTERVAL, default=0): _nonnegative_float,
-        vol.Optional(CONF_MAXIMUM_INTERVAL, default=0): _nonnegative_float,
+        vol.Optional(CONF_PRECISION, default=DEFAULT_PRECISION): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=12)
+        )
     }
 )
 
@@ -118,28 +104,18 @@ NORMIFY_SCHEMA = vol.All(
             vol.Optional(CONF_ATTRIBUTE): cv.string,
             vol.Optional(CONF_HIDE_SOURCE, default=False): cv.boolean,
             vol.Optional(CONF_NAME): cv.string,
-            vol.Optional(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
             vol.Optional(CONF_UNIT_OF_MEASUREMENT): cv.string,
-            vol.Optional(CONF_STATE_CLASS): STATE_CLASSES_SCHEMA,
-            vol.Optional(CONF_CLAMP): CLAMP_SCHEMA,
+            vol.Optional(CONF_DEVICE_CLASS): vol.In(
+                [device_class.value for device_class in SensorDeviceClass]
+            ),
+            vol.Optional(CONF_STATE_CLASS): vol.In(
+                [state_class.value for state_class in SensorStateClass]
+            ),
+            vol.Optional(CONF_ICON): cv.icon,
+            vol.Optional(CONF_VALUE_LIMITS): VALUE_LIMITS_SCHEMA,
             vol.Optional(CONF_CALIBRATION): CALIBRATION_SCHEMA,
-            vol.Optional(CONF_SMOOTHING): SMOOTHING_SCHEMA,
-            vol.Optional(CONF_PUBLISH): PUBLISH_SCHEMA,
-            # Legacy flat keys remain accepted for existing installations.
-            vol.Optional(CONF_MINIMUM): vol.Coerce(float),
-            vol.Optional(CONF_MAXIMUM): vol.Coerce(float),
-            vol.Optional(CONF_DATA_POINTS): [
-                vol.ExactSequence([vol.Coerce(float), vol.Coerce(float)])
-            ],
-            vol.Optional(CONF_DEGREE): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=MAX_DEGREE)
-            ),
-            vol.Optional(CONF_SCALE): vol.Coerce(float),
-            vol.Optional(CONF_OFFSET): vol.Coerce(float),
-            vol.Optional(CONF_PRECISION, default=DEFAULT_PRECISION): vol.All(
-                vol.Coerce(int), vol.Range(min=0, max=12)
-            ),
-            vol.Optional(CONF_STALE_AFTER, default=0): _nonnegative_float,
+            vol.Optional(CONF_WINDOW): WINDOW_SCHEMA,
+            vol.Optional(CONF_ROUNDING): ROUNDING_SCHEMA,
         }
     ),
     _validate_normify,
@@ -176,13 +152,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Normify config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Keep existing flat entries compatible with the simplified public schema."""
-    if entry.version < 2:
-        hass.config_entries.async_update_entry(entry, version=2, minor_version=2)
-    return True
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
