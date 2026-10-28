@@ -6,9 +6,11 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any
 
-import voluptuous as vol
-from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
-from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.components.sensor import (
+    DOMAIN as SENSOR_DOMAIN,
+    SensorDeviceClass,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.const import (
     CONF_ATTRIBUTE,
@@ -36,6 +38,7 @@ from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
 )
+import voluptuous as vol
 
 from .calibration import (
     CalibrationError,
@@ -83,7 +86,7 @@ _METADATA_KEYS = (
 def _duration_number(value: object) -> float:
     if value is None:
         return 0.0
-    if isinstance(value, (str, int, float)):
+    if isinstance(value, str | int | float):
         return float(value)
     raise ValueError(f"Invalid duration value: {value!r}")
 
@@ -316,11 +319,18 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
                 minimum = normalized.get(CONF_MINIMUM)
                 maximum = normalized.get(CONF_MAXIMUM)
-                if minimum is not None and maximum is not None and minimum > maximum:
-                    raise ValueError
             except (TypeError, ValueError):
                 errors["base"] = "invalid_configuration"
             else:
+                if minimum is not None and maximum is not None and minimum > maximum:
+                    errors["base"] = "invalid_configuration"
+                    return self.async_show_form(
+                        step_id="value_limits",
+                        data_schema=_value_limits_schema(
+                            {CONF_VALUE_LIMITS: user_input}
+                        ),
+                        errors=errors,
+                    )
                 self._flow_data[CONF_VALUE_LIMITS] = normalized
                 self._completed.add(CONF_ENABLE_LIMITS)
                 return await self._next_step()
@@ -343,7 +353,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 points = parse_data_points_text(
                     str(user_input.get(CONF_DATA_POINTS_TEXT, "")).strip()
                 )
-                normalized = {
+                normalized: dict[str, Any] = {
                     CONF_DATA_POINTS: [list(pair) for pair in points],
                     CONF_DEGREE: int(user_input.get(CONF_DEGREE, DEFAULT_DEGREE)),
                 }
@@ -369,11 +379,15 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            try:
-                seconds = timedelta(**user_input[CONF_DURATION]).total_seconds()
+
+            def validate_window_seconds(seconds: float) -> None:
                 if not 0 < seconds <= MAX_WINDOW_SECONDS:
                     raise ValueError
-                normalized = {
+
+            try:
+                seconds = timedelta(**user_input[CONF_DURATION]).total_seconds()
+                validate_window_seconds(seconds)
+                normalized: dict[str, Any] = {
                     CONF_DURATION: seconds,
                     CONF_OUTPUT: str(user_input.get(CONF_OUTPUT, WINDOW_OUTPUT_MEAN)),
                 }

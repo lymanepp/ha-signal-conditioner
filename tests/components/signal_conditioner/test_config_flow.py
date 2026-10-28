@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.signal_conditioner.const import (
+    CONF_CALIBRATION,
     CONF_DATA_POINTS,
     CONF_DATA_POINTS_TEXT,
     CONF_DEGREE,
@@ -26,9 +27,8 @@ from custom_components.signal_conditioner.const import (
     CONF_MINIMUM,
     CONF_OUTPUT,
     CONF_PRECISION,
-    CONF_STATE_CLASS,
-    CONF_CALIBRATION,
     CONF_ROUNDING,
+    CONF_STATE_CLASS,
     CONF_VALUE_LIMITS,
     CONF_WINDOW,
     DOMAIN,

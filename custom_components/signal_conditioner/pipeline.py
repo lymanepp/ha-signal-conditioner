@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+import math
 
 from .calibration import CalibrationError, PolynomialCalibration
 
@@ -43,9 +43,12 @@ class PipelineConfig:
     window_output: WindowOutput = WindowOutput.MEAN
 
     def __post_init__(self) -> None:
-        if self.minimum is not None and self.maximum is not None:
-            if self.minimum > self.maximum:
-                raise PipelineConfigurationError("minimum cannot exceed maximum")
+        if (
+            self.minimum is not None
+            and self.maximum is not None
+            and self.minimum > self.maximum
+        ):
+            raise PipelineConfigurationError("minimum cannot exceed maximum")
         if self.precision is not None and self.precision < 0:
             raise PipelineConfigurationError("precision cannot be negative")
         if not 0 <= self.window_duration <= MAX_WINDOW_SECONDS:
@@ -70,7 +73,7 @@ class ConditioningPipeline:
         self.config = config
         self._window_values: list[float] = []
 
-    def process(self, source_value: object) -> PipelineResult:
+    def process(self, source_value: object) -> PipelineResult:  # noqa: PLR0911
         """Validate and condition one source reading."""
         try:
             raw_value = float(source_value)  # type: ignore[arg-type]
@@ -118,7 +121,7 @@ class ConditioningPipeline:
         return round(value, self.config.precision)
 
 
-def build_pipeline_config(
+def build_pipeline_config(  # noqa: PLR0913
     *,
     data_points: Iterable[Sequence[object]] = (),
     degree: int = 1,

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta
+import logging
 from typing import cast
 
 from homeassistant.components.sensor import (
@@ -34,7 +34,7 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import RegistryEntryHider
 from homeassistant.helpers.event import (
     async_track_state_change_event,
@@ -96,7 +96,7 @@ def _release_hidden_source(hass: HomeAssistant, source: str, entry_id: str) -> N
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddConfigEntryEntitiesCallback,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up a Signal Conditioner sensor from a config entry."""
     async_add_entities([SignalConditionerSensor(hass, entry)])

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+import math
 
 from numpy.polynomial import Polynomial
 
@@ -30,7 +30,7 @@ def normalize_data_points(
     """Validate and normalize calibration point pairs."""
     normalized: list[tuple[float, float]] = []
     for index, pair in enumerate(data_points, start=1):
-        if len(pair) != 2:
+        if len(pair) != 2:  # noqa: PLR2004
             raise CalibrationError(
                 f"data point {index} must contain exactly two values"
             )
@@ -53,7 +53,7 @@ def parse_data_points_text(value: str) -> tuple[tuple[float, float], ...]:
         if not line or line.startswith("#"):
             continue
         parts = [part.strip() for part in line.split(",")]
-        if len(parts) != 2:
+        if len(parts) != 2:  # noqa: PLR2004
             raise CalibrationError(
                 f"line {line_number} must use the format: input, output"
             )

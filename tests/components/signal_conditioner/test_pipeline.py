@@ -3,8 +3,8 @@
 import pytest
 
 from custom_components.signal_conditioner.calibration import PolynomialCalibration
-from custom_components.signal_conditioner.pipeline import MAX_WINDOW_SECONDS
 from custom_components.signal_conditioner.pipeline import (
+    MAX_WINDOW_SECONDS,
     ConditioningPipeline,
     Disposition,
     PipelineConfig,

@@ -1,8 +1,8 @@
 """Tests for Signal Conditioner setup and YAML validation."""
 
+from homeassistant.const import CONF_SOURCE
 import pytest
 import voluptuous as vol
-from homeassistant.const import CONF_SOURCE
 
 from custom_components.signal_conditioner import CONFIG_SCHEMA
 from custom_components.signal_conditioner.const import (
