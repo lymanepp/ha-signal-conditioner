@@ -75,7 +75,7 @@ async def test_sensor_updates_and_inherits_metadata(hass: HomeAssistant) -> None
 
 
 async def test_unavailable_source_retains_last_valid_value(hass: HomeAssistant) -> None:
-    """Preserve Calibration's established unavailable-state behavior."""
+    """follow_source: false keeps the original Calibration behavior."""
     hass.states.async_set("sensor.raw", "3")
 
     entry = ConfigEntry(
@@ -91,6 +91,7 @@ async def test_unavailable_source_retains_last_valid_value(hass: HomeAssistant) 
                 CONF_DEGREE: 1,
             },
             CONF_ROUNDING: {CONF_PRECISION: 2},
+            "availability": {"follow_source": False},
         },
         source="user",
         unique_id="stable_value",

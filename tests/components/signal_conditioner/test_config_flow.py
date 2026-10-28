@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.signal_conditioner.const import (
+    CONF_AVAILABILITY,
     CONF_CALIBRATION,
     CONF_DATA_POINTS,
     CONF_DATA_POINTS_TEXT,
@@ -22,16 +23,21 @@ from custom_components.signal_conditioner.const import (
     CONF_ENABLE_LIMITS,
     CONF_ENABLE_ROUNDING,
     CONF_ENABLE_WINDOW,
+    CONF_FOLLOW_SOURCE,
     CONF_HIDE_SOURCE,
     CONF_MAXIMUM,
     CONF_MINIMUM,
+    CONF_MODE,
     CONF_OUTPUT,
     CONF_PRECISION,
     CONF_ROUNDING,
+    CONF_STALE_AFTER,
     CONF_STATE_CLASS,
     CONF_VALUE_LIMITS,
     CONF_WINDOW,
     DOMAIN,
+    LIMIT_MODE_CLAMP,
+    LIMIT_MODE_REJECT,
     WINDOW_OUTPUT_MEAN,
 )
 
@@ -107,6 +113,7 @@ async def test_only_enabled_steps_are_visited(hass: HomeAssistant) -> None:
     assert result["data"][CONF_VALUE_LIMITS] == {
         CONF_MINIMUM: 0.0,
         CONF_MAXIMUM: 100.0,
+        CONF_MODE: LIMIT_MODE_REJECT,
     }
     assert result["data"][CONF_ROUNDING] == {CONF_PRECISION: 1}
 
@@ -259,3 +266,117 @@ async def test_reconfigure_keeps_source_identity(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.ABORT
     assert entry.data[CONF_SOURCE] == "sensor.original"
     assert entry.unique_id == "sensor.original"
+
+
+def _plain_source(**extra: object) -> dict:
+    return {
+        CONF_NAME: "Plain",
+        CONF_SOURCE: "sensor.raw",
+        "attribute": "",
+        CONF_HIDE_SOURCE: False,
+        CONF_UNIT_OF_MEASUREMENT: "",
+        CONF_DEVICE_CLASS: "",
+        CONF_STATE_CLASS: "",
+        CONF_ICON: "",
+        CONF_ENABLE_LIMITS: False,
+        CONF_ENABLE_CALIBRATION: False,
+        CONF_ENABLE_WINDOW: False,
+        CONF_ENABLE_ROUNDING: False,
+        **extra,
+    }
+
+
+async def test_availability_defaults_to_following_the_source(
+    hass: HomeAssistant,
+) -> None:
+    result = await _source_step(hass)
+    assert result["data"][CONF_AVAILABILITY] == {CONF_FOLLOW_SOURCE: True}
+
+
+async def test_availability_options_are_saved(hass: HomeAssistant) -> None:
+    hass.states.async_set("sensor.raw", "1")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        _plain_source(
+            **{
+                CONF_FOLLOW_SOURCE: False,
+                CONF_STALE_AFTER: {"minutes": 15},
+            }
+        ),
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_AVAILABILITY] == {
+        CONF_FOLLOW_SOURCE: False,
+        CONF_STALE_AFTER: 900,
+    }
+
+
+async def test_zero_stale_after_means_disabled(hass: HomeAssistant) -> None:
+    hass.states.async_set("sensor.raw", "1")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _plain_source(**{CONF_STALE_AFTER: {"seconds": 0}})
+    )
+    assert CONF_STALE_AFTER not in result["data"][CONF_AVAILABILITY]
+
+
+async def test_out_of_range_stale_after_is_rejected(hass: HomeAssistant) -> None:
+    hass.states.async_set("sensor.raw", "1")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _plain_source(**{CONF_STALE_AFTER: {"hours": 25}})
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_configuration"}
+
+
+async def test_clamp_limit_mode_is_saved(hass: HomeAssistant) -> None:
+    result = await _source_step(hass, limits=True)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_MINIMUM: 0, CONF_MODE: LIMIT_MODE_CLAMP}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_VALUE_LIMITS] == {
+        CONF_MINIMUM: 0.0,
+        CONF_MODE: LIMIT_MODE_CLAMP,
+    }
+
+
+async def test_reconfigure_offers_saved_availability(hass: HomeAssistant) -> None:
+    hass.states.async_set("sensor.original", "5")
+    entry = ConfigEntry(
+        version=1,
+        minor_version=0,
+        domain=DOMAIN,
+        title="Original",
+        data={
+            CONF_NAME: "Original",
+            CONF_SOURCE: "sensor.original",
+            CONF_AVAILABILITY: {CONF_FOLLOW_SOURCE: False, CONF_STALE_AFTER: 600},
+        },
+        source="user",
+        unique_id="sensor.original",
+        discovery_keys={},
+        options={},
+        subentries_data=[],
+    )
+    hass.config_entries._entries[entry.entry_id] = entry
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+    markers = {marker.schema: marker for marker in result["data_schema"].schema}
+    assert markers[CONF_FOLLOW_SOURCE].default() is False
+    assert markers[CONF_STALE_AFTER].description == {
+        "suggested_value": {"seconds": 600.0}
+    }

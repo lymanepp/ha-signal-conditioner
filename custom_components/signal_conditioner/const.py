@@ -26,11 +26,19 @@ CONF_ROUNDING = "rounding"
 CONF_DURATION = "duration"
 CONF_OUTPUT = "output"
 CONF_STATE_CLASS = "state_class"
+CONF_MODE = "mode"
+CONF_AVAILABILITY = "availability"
+CONF_FOLLOW_SOURCE = "follow_source"
+CONF_STALE_AFTER = "stale_after"
 
 
 WINDOW_OUTPUT_MEAN = "mean"
 WINDOW_OUTPUT_LATEST = "latest"
 
+LIMIT_MODE_REJECT = "reject"
+LIMIT_MODE_CLAMP = "clamp"
+
 DEFAULT_DEGREE = 1
 DEFAULT_PRECISION = 2
 MAX_DEGREE = 7
+DEFAULT_FOLLOW_SOURCE = True

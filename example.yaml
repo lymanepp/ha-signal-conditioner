@@ -1,9 +1,15 @@
 # IMPORTANT:
 # - All active legacy filter/calibration chains were discovered and represented.
-# - Each configured window collects every accepted, calibrated reading received
-#   during the period and publishes one selected value when the period ends.
-# - A window defaults to publishing the arithmetic mean when `output` is omitted.
-# - Omitting `window` publishes each accepted reading immediately.
+# - A window holds each accepted reading in force until the next one and
+#   publishes once per period. `mean` (the default) is time-weighted, like
+#   Home Assistant's time_simple_moving_average; `latest` is the reading in
+#   force when the period ends. Omitting `window` publishes every reading.
+# - The first value is published at once (current reading, else the value
+#   restored from before the restart); a window never delays it.
+# - By default the sensor is unavailable/unknown while its source is
+#   (`availability: {follow_source: false}` keeps the last value instead).
+# - `value_limits` rejects out-of-range raw readings by default. The pool
+#   sensors use `mode: clamp` to match the legacy `range` filter.
 #
 signal_conditioner:
   attic_temperature:
@@ -291,6 +297,7 @@ signal_conditioner:
     value_limits:
       minimum: 0
       maximum: 100
+      mode: clamp
     window:
       duration: 30
     rounding:
@@ -301,6 +308,7 @@ signal_conditioner:
     value_limits:
       minimum: 0
       maximum: 100
+      mode: clamp
     window:
       duration: 60
     rounding:
@@ -311,6 +319,7 @@ signal_conditioner:
     value_limits:
       minimum: 12
       maximum: 32
+      mode: clamp
     window:
       duration: 60
     rounding:
@@ -321,6 +330,7 @@ signal_conditioner:
     value_limits:
       minimum: 3
       maximum: 7
+      mode: clamp
     window:
       duration: 60
     rounding:
@@ -331,6 +341,7 @@ signal_conditioner:
     value_limits:
       minimum: 0
       maximum: 200
+      mode: clamp
     window:
       duration: 60
     rounding:
@@ -341,6 +352,7 @@ signal_conditioner:
     value_limits:
       minimum: 0
       maximum: 250
+      mode: clamp
     window:
       duration: 60
     rounding:
@@ -351,6 +363,7 @@ signal_conditioner:
     value_limits:
       minimum: 0
       maximum: 14
+      mode: clamp
     window:
       duration: 60
     rounding:
@@ -361,6 +374,7 @@ signal_conditioner:
     value_limits:
       minimum: 0
       maximum: 120
+      mode: clamp
     window:
       duration: 60
     rounding:
@@ -376,25 +390,3 @@ signal_conditioner:
       duration: 30
     rounding:
       precision: 0
-
-  weatherflow_filtered_temperature:
-    source: sensor.weatherflow_temperature
-    value_limits:
-      minimum: -20
-      maximum: 140
-    name: Weatherflow Filtered Temperature
-    window:
-      duration: 60
-    rounding:
-      precision: 2
-
-  weatherflow_filtered_humidity:
-    source: sensor.weatherflow_humidity
-    value_limits:
-      minimum: 0
-      maximum: 100
-    name: Weatherflow Filtered Humidity
-    window:
-      duration: 60
-    rounding:
-      precision: 2

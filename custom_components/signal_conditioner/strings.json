@@ -17,7 +17,9 @@
           "device_class": "Device class override",
           "state_class": "State class override",
           "icon": "Icon override",
-          "hide_source": "Hide source entity"
+          "hide_source": "Hide source entity",
+          "follow_source": "Follow source availability",
+          "stale_after": "Unavailable after no reports for"
         },
         "data_description": {
           "name": "Leave blank to derive the name from the source.",
@@ -30,7 +32,9 @@
           "device_class": "Leave blank to inherit it from a state-based source.",
           "state_class": "Leave blank to inherit it from a state-based source.",
           "icon": "Leave blank to inherit it from a state-based source.",
-          "hide_source": "Hide the source entity in Home Assistant after creating this conditioned sensor. Cannot be used when conditioning an attribute."
+          "hide_source": "Hide the source entity in Home Assistant after creating this conditioned sensor. Cannot be used when conditioning an attribute.",
+          "follow_source": "When on, this sensor is unavailable or unknown whenever the source is. When off, the last value is kept, as the original Calibration integration did.",
+          "stale_after": "Optional. Mark this sensor unavailable when the source has not reported (changed or re-reported the same value) for this long. Leave blank or zero to disable."
         }
       },
       "reconfigure": {
@@ -48,7 +52,9 @@
           "device_class": "Device class override",
           "state_class": "State class override",
           "icon": "Icon override",
-          "hide_source": "Hide source entity"
+          "hide_source": "Hide source entity",
+          "follow_source": "Follow source availability",
+          "stale_after": "Unavailable after no reports for"
         },
         "data_description": {
           "name": "Leave blank to derive the name from the source.",
@@ -61,19 +67,23 @@
           "device_class": "Leave blank to inherit it from a state-based source.",
           "state_class": "Leave blank to inherit it from a state-based source.",
           "icon": "Leave blank to inherit it from a state-based source.",
-          "hide_source": "Hide the source entity in Home Assistant after creating this conditioned sensor. Cannot be used when conditioning an attribute."
+          "hide_source": "Hide the source entity in Home Assistant after creating this conditioned sensor. Cannot be used when conditioning an attribute.",
+          "follow_source": "When on, this sensor is unavailable or unknown whenever the source is. When off, the last value is kept, as the original Calibration integration did.",
+          "stale_after": "Optional. Mark this sensor unavailable when the source has not reported (changed or re-reported the same value) for this long. Leave blank or zero to disable."
         }
       },
       "value_limits": {
-        "title": "Reject bad values",
-        "description": "Only the rules entered here are added. Values outside the configured range are rejected.",
+        "title": "Limit values",
+        "description": "Only the rules entered here are added. Choose whether out-of-range raw readings are rejected or pinned to the nearest limit.",
         "data": {
           "minimum": "Minimum valid value",
-          "maximum": "Maximum valid value"
+          "maximum": "Maximum valid value",
+          "mode": "Out-of-range readings"
         },
         "data_description": {
           "minimum": "Leave blank for no lower limit.",
-          "maximum": "Leave blank for no upper limit."
+          "maximum": "Leave blank for no upper limit.",
+          "mode": "Reject drops the reading and keeps the value already in force. Clamp pins it to the limit, like Home Assistant's range filter."
         }
       },
       "calibration": {
@@ -97,14 +107,14 @@
       },
       "window": {
         "title": "Process readings in a time window",
-        "description": "Collect every accepted, calibrated reading during the period and publish exactly once when it ends.",
+        "description": "Each accepted reading stays in force until the next one, across intervals. The sensor publishes once at the end of each interval.",
         "data": {
           "duration": "Window duration",
           "output": "Published value"
         },
         "data_description": {
           "duration": "The same period controls both collection and publication.",
-          "output": "Choose the arithmetic mean of all readings or the latest accepted reading."
+          "output": "Mean is time-weighted: each reading counts for as long as it was in force. Latest publishes the reading in force when the interval ends."
         }
       }
     },
@@ -120,8 +130,14 @@
   "selector": {
     "window_output": {
       "options": {
-        "mean": "Mean of all readings",
+        "mean": "Time-weighted mean",
         "latest": "Latest reading"
+      }
+    },
+    "limit_mode": {
+      "options": {
+        "reject": "Reject (keep the current value)",
+        "clamp": "Clamp to the limit"
       }
     }
   }

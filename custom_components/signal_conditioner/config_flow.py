@@ -55,6 +55,7 @@ from .calibration import (
 )
 from .config import pipeline_config_from_data
 from .const import (
+    CONF_AVAILABILITY,
     CONF_CALIBRATION,
     CONF_DATA_POINTS,
     CONF_DATA_POINTS_TEXT,
@@ -64,23 +65,29 @@ from .const import (
     CONF_ENABLE_LIMITS,
     CONF_ENABLE_ROUNDING,
     CONF_ENABLE_WINDOW,
+    CONF_FOLLOW_SOURCE,
     CONF_HIDE_SOURCE,
     CONF_MAXIMUM,
     CONF_MINIMUM,
+    CONF_MODE,
     CONF_OUTPUT,
     CONF_PRECISION,
     CONF_ROUNDING,
+    CONF_STALE_AFTER,
     CONF_STATE_CLASS,
     CONF_VALUE_LIMITS,
     CONF_WINDOW,
     DEFAULT_DEGREE,
+    DEFAULT_FOLLOW_SOURCE,
     DEFAULT_PRECISION,
     DOMAIN,
+    LIMIT_MODE_CLAMP,
+    LIMIT_MODE_REJECT,
     MAX_DEGREE,
     WINDOW_OUTPUT_LATEST,
     WINDOW_OUTPUT_MEAN,
 )
-from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
+from .pipeline import MAX_WINDOW_SECONDS, LimitMode, PipelineConfigurationError
 
 _METADATA_KEYS = (
     CONF_UNIT_OF_MEASUREMENT,
@@ -155,6 +162,20 @@ def _source_schema(
             ),
             _suggested_optional(CONF_ICON, defaults): IconSelector(),
             vol.Required(
+                CONF_FOLLOW_SOURCE,
+                default=bool(
+                    defaults.get(
+                        CONF_FOLLOW_SOURCE,
+                        _section(defaults, CONF_AVAILABILITY).get(
+                            CONF_FOLLOW_SOURCE, DEFAULT_FOLLOW_SOURCE
+                        ),
+                    )
+                ),
+            ): BooleanSelector(),
+            _suggested_optional(
+                CONF_STALE_AFTER, _stale_after_defaults(defaults)
+            ): DurationSelector(DurationSelectorConfig(enable_day=False)),
+            vol.Required(
                 CONF_ENABLE_LIMITS,
                 default=CONF_VALUE_LIMITS in defaults,
             ): BooleanSelector(),
@@ -175,13 +196,32 @@ def _source_schema(
     return vol.Schema(fields)
 
 
+def _stale_after_defaults(defaults: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the stale-after default as a duration mapping, if one is set."""
+    if CONF_STALE_AFTER in defaults:
+        value = defaults[CONF_STALE_AFTER]
+    else:
+        value = _section(defaults, CONF_AVAILABILITY).get(CONF_STALE_AFTER)
+    if value in (None, "", 0) or value == {}:
+        return {}
+    return {CONF_STALE_AFTER: _duration_default(value)}
+
+
 def _value_limits_schema(defaults: Mapping[str, Any]) -> vol.Schema:
     defaults = _section(defaults, CONF_VALUE_LIMITS)
     number = NumberSelectorConfig(mode=NumberSelectorMode.BOX)
+    mode = str(defaults.get(CONF_MODE, LIMIT_MODE_REJECT))
     return vol.Schema(
         {
             _suggested_optional(CONF_MINIMUM, defaults): NumberSelector(number),
             _suggested_optional(CONF_MAXIMUM, defaults): NumberSelector(number),
+            vol.Required(CONF_MODE, default=mode): SelectSelector(
+                SelectSelectorConfig(
+                    options=[LIMIT_MODE_REJECT, LIMIT_MODE_CLAMP],
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="limit_mode",
+                )
+            ),
         }
     )
 
@@ -284,6 +324,22 @@ def _normalize_source(
             data[key] = value
         else:
             data.pop(key, None)
+
+    availability: dict[str, Any] = {
+        CONF_FOLLOW_SOURCE: bool(data.pop(CONF_FOLLOW_SOURCE, DEFAULT_FOLLOW_SOURCE))
+    }
+    stale_after = data.pop(CONF_STALE_AFTER, None)
+    if stale_after not in (None, "", {}):
+        seconds = (
+            timedelta(**stale_after).total_seconds()
+            if isinstance(stale_after, Mapping)
+            else float(stale_after)
+        )
+        if not 0 <= seconds <= MAX_WINDOW_SECONDS:
+            raise PipelineConfigurationError("stale_after is out of range")
+        if seconds > 0:
+            availability[CONF_STALE_AFTER] = seconds
+    data[CONF_AVAILABILITY] = availability
     return data, enabled
 
 
@@ -319,11 +375,15 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                normalized = {
+                normalized: dict[str, Any] = {
                     key: float(user_input[key])
                     for key in (CONF_MINIMUM, CONF_MAXIMUM)
                     if user_input.get(key) not in (None, "")
                 }
+                # LimitMode() raises ValueError for anything unsupported.
+                normalized[CONF_MODE] = LimitMode(
+                    str(user_input.get(CONF_MODE, LIMIT_MODE_REJECT))
+                ).value
                 minimum = normalized.get(CONF_MINIMUM)
                 maximum = normalized.get(CONF_MAXIMUM)
             except (TypeError, ValueError):
@@ -442,7 +502,18 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         except PipelineConfigurationError:
             return self.async_abort(reason="invalid_import")
         await self.async_set_unique_id(unique_id)
-        self._abort_if_unique_id_configured(updates=user_input)
+        # Replace, never merge: _abort_if_unique_id_configured(updates=...)
+        # merges into the old data, so a block deleted from the YAML (a
+        # window, limits, ...) would silently stay in force.
+        for entry in self._async_current_entries(include_ignore=False):
+            if entry.unique_id != unique_id:
+                continue
+            if entry.data != user_input or entry.title != user_input[CONF_NAME]:
+                # The entry's update listener reloads it when it is loaded.
+                self.hass.config_entries.async_update_entry(
+                    entry, title=user_input[CONF_NAME], data=user_input
+                )
+            return self.async_abort(reason="already_configured")
         return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
 
     async def _async_source(
@@ -461,7 +532,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._flow_data, self._enabled = _normalize_source(
                     self.hass, source_input
                 )
-            except PipelineConfigurationError:
+            except (TypeError, ValueError):  # includes PipelineConfigurationError
                 errors["base"] = "invalid_configuration"
             else:
                 self._completed.clear()

@@ -31,6 +31,13 @@ class WindowOutput(StrEnum):
     LATEST = "latest"
 
 
+class LimitMode(StrEnum):
+    """What happens to a raw reading outside the configured value limits."""
+
+    REJECT = "reject"
+    CLAMP = "clamp"
+
+
 @dataclass(frozen=True, slots=True)
 class PipelineConfig:
     """Validated configuration for one conditioning pipeline."""
@@ -38,6 +45,7 @@ class PipelineConfig:
     calibration: PolynomialCalibration | None = None
     minimum: float | None = None
     maximum: float | None = None
+    limit_mode: LimitMode = LimitMode.REJECT
     precision: int | None = None
     window_duration: float = 0.0
     window_output: WindowOutput = WindowOutput.MEAN
@@ -59,7 +67,12 @@ class PipelineConfig:
 
 @dataclass(frozen=True, slots=True)
 class PipelineResult:
-    """Outcome returned after processing or closing an interval."""
+    """Outcome returned after processing or closing an interval.
+
+    A HOLD returned by ``process`` still carries the rounded conditioned
+    reading so the caller can publish it at once when it has nothing to show
+    yet (startup, or recovery after the source was unavailable).
+    """
 
     disposition: Disposition
     value: float | None = None
@@ -67,14 +80,25 @@ class PipelineResult:
 
 
 class ConditioningPipeline:
-    """Condition readings and optionally hold them until the next interval tick."""
+    """Condition readings and optionally hold them until the next interval tick.
+
+    A window treats the source as a sample-and-hold signal: each accepted
+    reading stays in force until the next one, including across interval
+    boundaries. ``mean`` is the time-weighted mean of that signal over the
+    interval (like Home Assistant's ``time_simple_moving_average``), so an
+    interval with no new readings publishes the value still in force instead
+    of leaving a stale average behind.
+    """
 
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
-        self._window_values: list[float] = []
+        self._current: float | None = None
+        self._current_since = 0.0
+        self._area = 0.0
+        self._covered = 0.0
 
-    def process(self, source_value: object) -> PipelineResult:  # noqa: PLR0911
-        """Validate and condition one source reading."""
+    def process(self, source_value: object, timestamp: float = 0.0) -> PipelineResult:  # noqa: PLR0911
+        """Validate and condition one source reading received at ``timestamp``."""
         try:
             raw_value = float(source_value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
@@ -85,10 +109,15 @@ class ConditioningPipeline:
             return PipelineResult(
                 Disposition.REJECT, reason="source value must be finite"
             )
+        clamp = self.config.limit_mode is LimitMode.CLAMP
         if self.config.minimum is not None and raw_value < self.config.minimum:
-            return PipelineResult(Disposition.REJECT, reason="below minimum")
+            if not clamp:
+                return PipelineResult(Disposition.REJECT, reason="below minimum")
+            raw_value = self.config.minimum
         if self.config.maximum is not None and raw_value > self.config.maximum:
-            return PipelineResult(Disposition.REJECT, reason="above maximum")
+            if not clamp:
+                return PipelineResult(Disposition.REJECT, reason="above maximum")
+            raw_value = self.config.maximum
 
         conditioned = raw_value
         if self.config.calibration is not None:
@@ -100,20 +129,51 @@ class ConditioningPipeline:
         if self.config.window_duration <= 0:
             return PipelineResult(Disposition.PUBLISH, value=self._round(conditioned))
 
-        self._window_values.append(conditioned)
-        return PipelineResult(Disposition.HOLD)
+        self._hold(conditioned, timestamp)
+        return PipelineResult(Disposition.HOLD, value=self._round(conditioned))
 
-    def flush(self) -> PipelineResult:
-        """Publish the populated interval, or do nothing when it was empty."""
-        if not self._window_values:
+    def seed(self, value: float, timestamp: float) -> None:
+        """Put an already-conditioned value (e.g. restored state) in force."""
+        if self.config.window_duration > 0 and math.isfinite(value):
+            self._hold(value, timestamp)
+
+    def flush(self, timestamp: float = 0.0) -> PipelineResult:
+        """Close the interval ending at ``timestamp`` and publish its value.
+
+        Nothing is published until a reading has been put in force.
+        """
+        if self._current is None:
             return PipelineResult(Disposition.HOLD)
 
-        if self.config.window_output is WindowOutput.MEAN:
-            selected = sum(self._window_values) / len(self._window_values)
+        self._accumulate(timestamp)
+        if self.config.window_output is WindowOutput.MEAN and self._covered > 0:
+            selected = self._area / self._covered
         else:
-            selected = self._window_values[-1]
-        self._window_values.clear()
+            selected = self._current
+        self._area = 0.0
+        self._covered = 0.0
         return PipelineResult(Disposition.PUBLISH, value=self._round(selected))
+
+    def reset(self) -> None:
+        """Forget the held value, e.g. when the source becomes unavailable."""
+        self._current = None
+        self._area = 0.0
+        self._covered = 0.0
+
+    def _hold(self, value: float, timestamp: float) -> None:
+        if self._current is not None:
+            self._accumulate(timestamp)
+        else:
+            self._current_since = timestamp
+        self._current = value
+
+    def _accumulate(self, timestamp: float) -> None:
+        # Clock steps backwards are treated as zero elapsed time.
+        elapsed = max(0.0, timestamp - self._current_since)
+        if self._current is not None:
+            self._area += self._current * elapsed
+            self._covered += elapsed
+        self._current_since = max(timestamp, self._current_since)
 
     def _round(self, value: float) -> float:
         if self.config.precision is None:
@@ -127,6 +187,7 @@ def build_pipeline_config(  # noqa: PLR0913
     degree: int = 1,
     minimum: float | None = None,
     maximum: float | None = None,
+    limit_mode: str = LimitMode.REJECT,
     precision: int | None = None,
     window_duration: float = 0.0,
     window_output: str = WindowOutput.MEAN,
@@ -142,6 +203,7 @@ def build_pipeline_config(  # noqa: PLR0913
 
     try:
         normalized_window_output = WindowOutput(window_output)
+        normalized_limit_mode = LimitMode(limit_mode)
     except ValueError as err:
         raise PipelineConfigurationError(str(err)) from err
 
@@ -149,6 +211,7 @@ def build_pipeline_config(  # noqa: PLR0913
         calibration=calibration,
         minimum=minimum,
         maximum=maximum,
+        limit_mode=normalized_limit_mode,
         precision=precision,
         window_duration=window_duration,
         window_output=normalized_window_output,

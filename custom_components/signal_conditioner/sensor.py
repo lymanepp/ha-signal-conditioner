@@ -8,8 +8,8 @@ from typing import cast
 
 from homeassistant.components.sensor import (
     ATTR_STATE_CLASS,
+    RestoreSensor,
     SensorDeviceClass,
-    SensorEntity,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -27,8 +27,10 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import (
+    CALLBACK_TYPE,
     Event,
     EventStateChangedData,
+    EventStateReportedData,
     HomeAssistant,
     State,
     callback,
@@ -37,11 +39,14 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import RegistryEntryHider
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
+    async_track_state_report_event,
     async_track_time_interval,
 )
+from homeassistant.util import dt as dt_util
 
-from .config import pipeline_config_from_data
+from .config import availability_from_data, pipeline_config_from_data
 from .const import CONF_HIDE_SOURCE, CONF_STATE_CLASS, DOMAIN
 from .pipeline import ConditioningPipeline, Disposition
 
@@ -102,8 +107,21 @@ async def async_setup_entry(
     async_add_entities([SignalConditionerSensor(hass, entry)])
 
 
-class SignalConditionerSensor(SensorEntity):
-    """One sensor backed by a small in-memory conditioning pipeline."""
+class SignalConditionerSensor(RestoreSensor):
+    """One sensor backed by a small in-memory conditioning pipeline.
+
+    Availability rules:
+
+    * A first value is published as soon as one exists: the source's current
+      reading at setup, else the restored last value. A window never makes
+      the sensor wait for its first interval.
+    * With ``follow_source`` (default) the sensor is unavailable/unknown while
+      its source is, like Home Assistant's filter sensor. Without it, the last
+      value is kept, like the original Calibration integration.
+    * With ``stale_after`` the sensor becomes unavailable when the source has
+      not reported (changed or re-reported) for that long.
+    * After any gap the first valid reading is published at once.
+    """
 
     _attr_should_poll = False
 
@@ -115,6 +133,8 @@ class SignalConditionerSensor(SensorEntity):
         self._source_attribute = config.get(CONF_ATTRIBUTE)
         self._hide_source = bool(config.get(CONF_HIDE_SOURCE))
         self._pipeline = ConditioningPipeline(pipeline_config_from_data(config))
+        self._follow_source, self._stale_after = availability_from_data(config)
+        self._cancel_stale: CALLBACK_TYPE | None = None
 
         self._attr_unique_id = f"signal_conditioner.{entry.unique_id or entry.entry_id}"
         self._attr_name = config[CONF_NAME]
@@ -128,13 +148,24 @@ class SignalConditionerSensor(SensorEntity):
         self._attr_icon = config.get(CONF_ICON)
         self._attr_available = False
 
+    @property
+    def _has_value(self) -> bool:
+        return self._attr_available and self._attr_native_value is not None
+
     async def async_added_to_hass(self) -> None:
         """Prime the sensor, subscribe to the source, and start its interval."""
         if self._hide_source:
             _claim_hidden_source(self.hass, self._source_entity_id, self._entry_id)
 
-        if (state := self.hass.states.get(self._source_entity_id)) is not None:
+        state = self.hass.states.get(self._source_entity_id)
+        if state is not None and state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             self._process_source_state(state, write_state=False)
+        if not self._has_value and not (
+            self._follow_source
+            and state is not None
+            and state.state == STATE_UNAVAILABLE
+        ):
+            await self._async_restore()
 
         self.async_on_remove(
             async_track_state_change_event(
@@ -143,6 +174,17 @@ class SignalConditionerSensor(SensorEntity):
                 self._async_source_state_listener,
             )
         )
+        if self._stale_after is not None:
+            # Unchanged re-reports prove the source is alive and end staleness.
+            self.async_on_remove(
+                async_track_state_report_event(
+                    self.hass,
+                    [self._source_entity_id],
+                    self._async_source_report_listener,
+                )
+            )
+            if self._has_value:
+                self._schedule_stale()
         if self._pipeline.config.window_duration > 0:
             cancel_interval = async_track_time_interval(
                 self.hass,
@@ -150,6 +192,26 @@ class SignalConditionerSensor(SensorEntity):
                 timedelta(seconds=self._pipeline.config.window_duration),
             )
             self.async_on_remove(cancel_interval)
+        self.async_on_remove(self._cancel_stale_timer)
+
+    async def _async_restore(self) -> None:
+        """Show the last value from before the restart until the source reports."""
+        last_data = await self.async_get_last_sensor_data()
+        last_state = await self.async_get_last_state()
+        if last_data is None or last_state is None:
+            return
+        try:
+            value = float(cast(float, last_data.native_value))
+        except (TypeError, ValueError):
+            return
+        if (
+            self._attr_native_unit_of_measurement is None
+            and last_data.native_unit_of_measurement is not None
+        ):
+            self._attr_native_unit_of_measurement = last_data.native_unit_of_measurement
+        self._inherit_source_metadata(last_state)
+        self._pipeline.seed(value, dt_util.utcnow().timestamp())
+        self._publish(value, write_state=False)
 
     async def async_will_remove_from_hass(self) -> None:
         """Release source hiding owned by this entity."""
@@ -160,16 +222,32 @@ class SignalConditionerSensor(SensorEntity):
     def _async_source_state_listener(self, event: Event[EventStateChangedData]) -> None:
         """Handle source entity state changes."""
         new_state = event.data["new_state"]
-        if new_state is None:
+        if new_state is None or new_state.state == STATE_UNAVAILABLE:
+            if self._follow_source:
+                self._go_unavailable()
+            return
+        if new_state.state == STATE_UNKNOWN:
+            if self._follow_source:
+                self._go_unknown()
             return
         self._process_source_state(new_state)
 
     @callback
+    def _async_source_report_listener(
+        self, event: Event[EventStateReportedData]
+    ) -> None:
+        """Handle the source re-writing an unchanged state."""
+        new_state = event.data["new_state"]
+        if new_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            return
+        if self._has_value:
+            self._schedule_stale()
+        else:
+            self._process_source_state(new_state)
+
+    @callback
     def _process_source_state(self, state: State, *, write_state: bool = True) -> None:
         """Extract and condition one source state."""
-        if state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            return
-
         if self._source_attribute:
             raw_value = state.attributes.get(self._source_attribute)
             if raw_value is None:
@@ -178,21 +256,25 @@ class SignalConditionerSensor(SensorEntity):
             raw_value = state.state
             self._inherit_source_metadata(state)
 
-        result = self._pipeline.process(raw_value)
-        if result.disposition is Disposition.PUBLISH:
-            self._publish(result.value, write_state=write_state)
-        elif result.disposition is Disposition.REJECT:
+        result = self._pipeline.process(raw_value, dt_util.utcnow().timestamp())
+        if result.disposition is Disposition.REJECT:
             _LOGGER.debug(
                 "Signal Conditioner rejected %s from %s: %s",
                 raw_value,
                 self._source_entity_id,
                 result.reason,
             )
+            return
+        if result.disposition is Disposition.PUBLISH or not self._has_value:
+            # A held reading is published at once when nothing is showing.
+            self._publish(result.value, write_state=write_state)
+        if self._stale_after is not None and self._has_value:
+            self._schedule_stale()
 
     @callback
-    def _async_interval(self, _now: datetime) -> None:
-        """Publish once for a populated interval and nothing for an empty one."""
-        result = self._pipeline.flush()
+    def _async_interval(self, now: datetime) -> None:
+        """Publish the value of the interval that just ended."""
+        result = self._pipeline.flush(now.timestamp())
         if result.disposition is Disposition.PUBLISH:
             self._publish(result.value)
 
@@ -205,6 +287,49 @@ class SignalConditionerSensor(SensorEntity):
         self._attr_available = True
         if write_state:
             self.async_write_ha_state()
+
+    @callback
+    def _go_unavailable(self) -> None:
+        """Mirror an unavailable or stale source."""
+        self._pipeline.reset()
+        self._cancel_stale_timer()
+        if self._attr_available:
+            self._attr_available = False
+            self.async_write_ha_state()
+
+    @callback
+    def _go_unknown(self) -> None:
+        """Mirror a source whose state is unknown."""
+        self._pipeline.reset()
+        self._cancel_stale_timer()
+        if not self._attr_available or self._attr_native_value is not None:
+            self._attr_available = True
+            self._attr_native_value = None
+            self.async_write_ha_state()
+
+    @callback
+    def _schedule_stale(self) -> None:
+        self._cancel_stale_timer()
+        assert self._stale_after is not None
+        self._cancel_stale = async_call_later(
+            self.hass, self._stale_after, self._async_source_stale
+        )
+
+    @callback
+    def _cancel_stale_timer(self) -> None:
+        if self._cancel_stale is not None:
+            self._cancel_stale()
+            self._cancel_stale = None
+
+    @callback
+    def _async_source_stale(self, _now: datetime) -> None:
+        self._cancel_stale = None
+        _LOGGER.debug(
+            "Signal Conditioner source %s has not reported for %s seconds",
+            self._source_entity_id,
+            self._stale_after,
+        )
+        self._go_unavailable()
 
     @callback
     def _inherit_source_metadata(self, state: State) -> None:

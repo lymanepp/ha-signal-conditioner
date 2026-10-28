@@ -91,12 +91,12 @@ def test_all_optional_sections_can_be_omitted() -> None:
 
 
 def test_empty_value_limits_is_a_noop() -> None:
-    """An empty limits block performs no filtering."""
+    """An empty limits block performs no filtering (mode defaults to reject)."""
     validated = CONFIG_SCHEMA(
         {DOMAIN: {"plain": {CONF_SOURCE: "sensor.plain_raw", CONF_VALUE_LIMITS: {}}}}
     )
     data = validated[DOMAIN]["plain"]
-    assert data[CONF_VALUE_LIMITS] == {}
+    assert data[CONF_VALUE_LIMITS] == {"mode": "reject"}
 
 
 @pytest.mark.parametrize(

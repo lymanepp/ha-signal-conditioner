@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
@@ -29,28 +30,37 @@ except ImportError:
 
 from .config import pipeline_config_from_data
 from .const import (
+    CONF_AVAILABILITY,
     CONF_CALIBRATION,
     CONF_DATA_POINTS,
     CONF_DEGREE,
     CONF_DURATION,
+    CONF_FOLLOW_SOURCE,
     CONF_HIDE_SOURCE,
     CONF_MAXIMUM,
     CONF_MINIMUM,
+    CONF_MODE,
     CONF_OUTPUT,
     CONF_PRECISION,
     CONF_ROUNDING,
+    CONF_STALE_AFTER,
     CONF_STATE_CLASS,
     CONF_VALUE_LIMITS,
     CONF_WINDOW,
     DEFAULT_DEGREE,
+    DEFAULT_FOLLOW_SOURCE,
     DEFAULT_PRECISION,
     DOMAIN,
+    LIMIT_MODE_CLAMP,
+    LIMIT_MODE_REJECT,
     MAX_DEGREE,
     PLATFORMS,
     WINDOW_OUTPUT_LATEST,
     WINDOW_OUTPUT_MEAN,
 )
 from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _validate_signal_conditioner(value: dict[str, Any]) -> dict[str, Any]:
@@ -72,6 +82,9 @@ VALUE_LIMITS_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_MINIMUM): vol.Coerce(float),
         vol.Optional(CONF_MAXIMUM): vol.Coerce(float),
+        vol.Optional(CONF_MODE, default=LIMIT_MODE_REJECT): vol.In(
+            [LIMIT_MODE_REJECT, LIMIT_MODE_CLAMP]
+        ),
     }
 )
 CALIBRATION_SCHEMA = vol.Schema(
@@ -90,6 +103,12 @@ WINDOW_SCHEMA = vol.Schema(
         vol.Optional(CONF_OUTPUT, default=WINDOW_OUTPUT_MEAN): vol.In(
             [WINDOW_OUTPUT_MEAN, WINDOW_OUTPUT_LATEST]
         ),
+    }
+)
+AVAILABILITY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_FOLLOW_SOURCE, default=DEFAULT_FOLLOW_SOURCE): cv.boolean,
+        vol.Optional(CONF_STALE_AFTER): _positive_window,
     }
 )
 ROUNDING_SCHEMA = vol.Schema(
@@ -119,6 +138,7 @@ SIGNAL_CONDITIONER_SCHEMA = vol.All(
             vol.Optional(CONF_CALIBRATION): CALIBRATION_SCHEMA,
             vol.Optional(CONF_WINDOW): WINDOW_SCHEMA,
             vol.Optional(CONF_ROUNDING): ROUNDING_SCHEMA,
+            vol.Optional(CONF_AVAILABILITY): AVAILABILITY_SCHEMA,
         }
     ),
     _validate_signal_conditioner,
@@ -130,8 +150,24 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Import YAML definitions into config entries."""
-    for object_id, raw_config in config.get(DOMAIN, {}).items():
+    """Import YAML definitions into config entries.
+
+    The YAML is the source of truth for imported entries: an entry whose key
+    is no longer in the YAML is removed, so deleting or renaming a key does
+    not leave an orphaned sensor behind. Entries created in the UI are never
+    touched. (When the YAML fails validation this function is not called, so
+    a typo cannot delete anything.)
+    """
+    yaml_config: dict[str, Any] = config.get(DOMAIN, {})
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.source == SOURCE_IMPORT and entry.unique_id not in yaml_config:
+            _LOGGER.warning(
+                "Removing Signal Conditioner '%s': its YAML key was removed",
+                entry.unique_id,
+            )
+            hass.async_create_task(hass.config_entries.async_remove(entry.entry_id))
+
+    for object_id, raw_config in yaml_config.items():
         entry_data = dict(raw_config)
         entry_data[CONF_UNIQUE_ID] = object_id
         entry_data.setdefault(CONF_NAME, object_id.replace("_", " ").title())

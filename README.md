@@ -19,10 +19,11 @@ The pipeline runs in this order:
 
 ```text
 Source state or attribute
-  → reject unknown, unavailable, missing, nonnumeric, NaN, and infinity
-  → optional minimum/maximum rejection
+  → unknown/unavailable: mirrored by default (see Availability)
+  → reject missing, nonnumeric, NaN, and infinity
+  → optional minimum/maximum: reject or clamp
   → optional calibration
-  → optional fixed time window selecting mean or latest
+  → optional fixed time window: time-weighted mean or latest
   → optional rounding
   → canonical Home Assistant sensor
 ```
@@ -46,6 +47,16 @@ existing Signal Conditioner sensor, and clearing a field removes that override.
 
 - Minimum valid value
 - Maximum valid value
+- `mode`: `reject` (default) drops an out-of-range raw reading and keeps the
+  value already in force; `clamp` pins it to the limit, like Home Assistant's
+  `range` filter. Limits apply to the raw reading, before calibration.
+
+```yaml
+value_limits:
+  minimum: 0
+  maximum: 100
+  mode: clamp
+```
 
 ### Calibration
 
@@ -60,14 +71,42 @@ window:
   output: mean
 ```
 
-A configured instance owns a repeating interval timer. It collects every accepted
-calibrated reading received during each interval and publishes exactly once at the
-interval boundary when at least one reading was collected. Empty intervals publish nothing.
+A configured instance owns a repeating interval timer and publishes once at each
+interval boundary. The source is treated as a sample-and-hold signal: each accepted
+calibrated reading stays in force until the next one, including across interval
+boundaries, so a quiet interval publishes the value still in force.
 
-- `mean` publishes the arithmetic mean of all readings in the period and is the default when `output` is omitted.
-- `latest` publishes the final accepted reading in the period.
+- `mean` publishes the time-weighted mean over the interval: each reading counts
+  for as long as it was in force, like Home Assistant's
+  `time_simple_moving_average`. A burst of quick readings is not over-counted.
+  This is the default when `output` is omitted.
+- `latest` publishes the reading in force when the interval ends.
+
+The first value is never delayed by the window: at setup, and after any gap
+(unavailable, unknown, or stale source), the first valid reading is published at
+once.
 
 Omit `window` to publish every accepted reading immediately.
+
+### Availability
+
+```yaml
+availability:
+  follow_source: true   # default
+  stale_after: 900      # seconds; optional
+```
+
+- `follow_source` (default `true`): the sensor is unavailable while its source is
+  unavailable or missing, and unknown while the source is unknown, like Home
+  Assistant's filter sensor. A window does not average across the gap. With
+  `false`, the last value is kept, as the original Calibration integration did.
+- `stale_after`: the sensor becomes unavailable when the source has not reported
+  for this long. Unchanged re-reports count, so a steady value does not go stale;
+  rejected readings do not count. Use it for sources that never go unavailable
+  on their own, such as MQTT sensors without an availability topic.
+- After a restart, while the source has no state yet, the sensor shows its last
+  value from before the restart (unless `follow_source` is on and the source is
+  unavailable). `stale_after` applies to that restored value too.
 
 ### Rounding
 
@@ -101,6 +140,12 @@ signal_conditioner:
 ```
 
 YAML and the config flow expose the same behavior set.
+
+YAML is the source of truth for the entries it creates. Each key is imported as
+a config entry on startup; changing a key's settings replaces the entry's settings
+(a block deleted from the YAML is removed from the entry), and deleting or
+renaming a key removes its entry and entity. Entries created in the UI are never
+touched. If the YAML fails validation, nothing is imported or removed.
 
 ## Installation
 
