@@ -107,5 +107,6 @@ Home Assistant configuration directory, restart Home Assistant, and add
 ## Development
 
 ```bash
+scripts/lint
 scripts/check
 ```

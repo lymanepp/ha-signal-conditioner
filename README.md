@@ -116,7 +116,13 @@ Start the development Home Assistant instance with:
 scripts/develop
 ```
 
-Run repository checks separately with:
+Run lint and type checks with:
+
+```bash
+scripts/lint
+```
+
+Run the complete repository check, including tests, with:
 
 ```bash
 scripts/check

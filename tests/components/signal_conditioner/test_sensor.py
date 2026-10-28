@@ -11,9 +11,11 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 
 from custom_components.signal_conditioner.const import (
+    CONF_CALIBRATION,
     CONF_DATA_POINTS,
     CONF_DEGREE,
     CONF_PRECISION,
+    CONF_ROUNDING,
     DOMAIN,
 )
 
@@ -38,9 +40,11 @@ async def test_sensor_updates_and_inherits_metadata(hass: HomeAssistant) -> None
         data={
             CONF_NAME: "Corrected temperature",
             CONF_SOURCE: "sensor.raw_temperature",
-            CONF_DATA_POINTS: [[1.0, 2.0], [2.0, 3.0]],
-            CONF_DEGREE: 1,
-            CONF_PRECISION: 2,
+            CONF_CALIBRATION: {
+                CONF_DATA_POINTS: [[1.0, 2.0], [2.0, 3.0]],
+                CONF_DEGREE: 1,
+            },
+            CONF_ROUNDING: {CONF_PRECISION: 2},
         },
         source="user",
         unique_id="corrected_temperature",
@@ -80,9 +84,11 @@ async def test_unavailable_source_retains_last_valid_value(hass: HomeAssistant) 
         data={
             CONF_NAME: "Stable value",
             CONF_SOURCE: "sensor.raw",
-            CONF_DATA_POINTS: [[0.0, 0.0], [1.0, 1.0]],
-            CONF_DEGREE: 1,
-            CONF_PRECISION: 2,
+            CONF_CALIBRATION: {
+                CONF_DATA_POINTS: [[0.0, 0.0], [1.0, 1.0]],
+                CONF_DEGREE: 1,
+            },
+            CONF_ROUNDING: {CONF_PRECISION: 2},
         },
         source="user",
         unique_id="stable_value",
@@ -99,3 +105,43 @@ async def test_unavailable_source_retains_last_valid_value(hass: HomeAssistant) 
     hass.states.async_set("sensor.raw", STATE_UNAVAILABLE)
     await hass.async_block_till_done()
     assert hass.states.get("sensor.stable_value").state == "3.0"
+
+async def test_hide_source_is_reversed_on_unload(hass: HomeAssistant) -> None:
+    """Undo only source hiding owned by Signal Conditioner."""
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers.entity_registry import RegistryEntryHider
+
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor", "test", "raw_hidden", suggested_object_id="raw_hidden"
+    )
+    hass.states.async_set("sensor.raw_hidden", "3")
+
+    entry = ConfigEntry(
+        version=1,
+        minor_version=0,
+        domain=DOMAIN,
+        title="Hidden source",
+        data={
+            CONF_NAME: "Hidden source",
+            CONF_SOURCE: "sensor.raw_hidden",
+            "hide_source": True,
+        },
+        source="user",
+        unique_id="sensor.raw_hidden",
+        discovery_keys={},
+        options={},
+        subentries_data=[],
+    )
+    hass.config_entries._entries[entry.entry_id] = entry
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert (
+        registry.async_get("sensor.raw_hidden").hidden_by
+        is RegistryEntryHider.INTEGRATION
+    )
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get("sensor.raw_hidden").hidden_by is None

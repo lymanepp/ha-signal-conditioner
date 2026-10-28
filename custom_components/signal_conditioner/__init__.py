@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .config import flatten_configuration, pipeline_config_from_data
+from .config import pipeline_config_from_data
 from .const import (
     CONF_CALIBRATION,
     CONF_DATA_POINTS,
@@ -39,23 +39,22 @@ from .const import (
     DEFAULT_PRECISION,
     DOMAIN,
     MAX_DEGREE,
-    MAX_WINDOW_SECONDS,
     PLATFORMS,
     WINDOW_OUTPUT_LATEST,
     WINDOW_OUTPUT_MEAN,
 )
-from .pipeline import PipelineConfigurationError
+from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
 
 
 def _validate_signal_conditioner(value: dict[str, Any]) -> dict[str, Any]:
-    """Validate and flatten one concise conditioning configuration."""
+    """Validate one concise conditioning configuration."""
     if value.get(CONF_ATTRIBUTE) and value.get(CONF_HIDE_SOURCE):
         raise vol.Invalid("attribute and hide_source cannot be used together")
     try:
         pipeline_config_from_data(value)
     except PipelineConfigurationError as err:
         raise vol.Invalid(str(err)) from err
-    return flatten_configuration(value)
+    return value
 
 
 _positive_window = vol.All(

@@ -27,8 +27,10 @@ from custom_components.signal_conditioner.const import (
     CONF_OUTPUT,
     CONF_PRECISION,
     CONF_STATE_CLASS,
-    CONF_WINDOW_DURATION,
-    CONF_WINDOW_OUTPUT,
+    CONF_CALIBRATION,
+    CONF_ROUNDING,
+    CONF_VALUE_LIMITS,
+    CONF_WINDOW,
     DOMAIN,
     WINDOW_OUTPUT_MEAN,
 )
@@ -96,9 +98,17 @@ async def test_only_enabled_steps_are_visited(hass: HomeAssistant) -> None:
         result["flow_id"], {CONF_PRECISION: 1}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_WINDOW_DURATION] == 30
-    assert result["data"][CONF_WINDOW_OUTPUT] == WINDOW_OUTPUT_MEAN
-    assert result["data"][CONF_DATA_POINTS] == [[38.68, 32.0], [79.89, 75.0]]
+    assert result["data"][CONF_WINDOW][CONF_DURATION] == 30
+    assert result["data"][CONF_WINDOW][CONF_OUTPUT] == WINDOW_OUTPUT_MEAN
+    assert result["data"][CONF_CALIBRATION][CONF_DATA_POINTS] == [
+        [38.68, 32.0],
+        [79.89, 75.0],
+    ]
+    assert result["data"][CONF_VALUE_LIMITS] == {
+        CONF_MINIMUM: 0.0,
+        CONF_MAXIMUM: 100.0,
+    }
+    assert result["data"][CONF_ROUNDING] == {CONF_PRECISION: 1}
 
 
 async def test_source_only_pipeline_finishes_immediately(hass: HomeAssistant) -> None:
@@ -157,6 +167,7 @@ async def test_same_name_different_sources_do_not_collide(hass: HomeAssistant) -
                 CONF_NAME: "Shared",
                 CONF_SOURCE: entity_id,
                 "attribute": "",
+                CONF_HIDE_SOURCE: False,
                 CONF_UNIT_OF_MEASUREMENT: "",
                 CONF_DEVICE_CLASS: "",
                 CONF_STATE_CLASS: "",
@@ -196,3 +207,55 @@ async def test_attribute_and_hide_source_are_incompatible(hass: HomeAssistant) -
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "invalid_configuration"}
+
+
+async def test_reconfigure_keeps_source_identity(hass: HomeAssistant) -> None:
+    """Reconfiguration changes behavior, not the entry's source identity."""
+    hass.states.async_set("sensor.original", "5")
+    entry = ConfigEntry(
+        version=1,
+        minor_version=0,
+        domain=DOMAIN,
+        title="Original",
+        data={
+            CONF_NAME: "Original",
+            CONF_SOURCE: "sensor.original",
+            CONF_HIDE_SOURCE: False,
+        },
+        source="user",
+        unique_id="sensor.original",
+        discovery_keys={},
+        options={},
+        subentries_data=[],
+    )
+    hass.config_entries._entries[entry.entry_id] = entry
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+    schema_keys = {marker.schema for marker in result["data_schema"].schema}
+    assert CONF_SOURCE not in schema_keys
+    assert "attribute" not in schema_keys
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Updated",
+            CONF_HIDE_SOURCE: False,
+            CONF_UNIT_OF_MEASUREMENT: "",
+            CONF_DEVICE_CLASS: "",
+            CONF_STATE_CLASS: "",
+            CONF_ICON: "",
+            CONF_ENABLE_LIMITS: False,
+            CONF_ENABLE_CALIBRATION: False,
+            CONF_ENABLE_WINDOW: False,
+            CONF_ENABLE_ROUNDING: False,
+        },
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert entry.data[CONF_SOURCE] == "sensor.original"
+    assert entry.unique_id == "sensor.original"

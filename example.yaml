@@ -1,0 +1,400 @@
+# IMPORTANT:
+# - All active legacy filter/calibration chains were discovered and represented.
+# - Each configured window collects every accepted, calibrated reading received
+#   during the period and publishes one selected value when the period ends.
+# - A window defaults to publishing the arithmetic mean when `output` is omitted.
+# - Omitting `window` publishes each accepted reading immediately.
+#
+signal_conditioner:
+  attic_temperature:
+    source: sensor.attic_inkbird_temperature
+    value_limits:
+      minimum: 20
+      maximum: 180
+    calibration:
+      data_points:
+      - [ 77.1, 76.1 ]
+      - [ 87.1, 86.1 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  attic_relative_humidity:
+    source: sensor.attic_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 53.87, 53.35 ]
+      - [ 63.87, 63.35 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  bedroom_2_temperature:
+    source: sensor.bedroom_2_inkbird_temperature
+    value_limits:
+      minimum: 40
+      maximum: 120
+    calibration:
+      data_points:
+      - [ 78.04, 77.54 ]
+      - [ 88.04, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  bedroom_2_relative_humidity:
+    source: sensor.bedroom_2_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 50.19, 53.0 ]
+      - [ 60.19, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  bedroom_3_temperature:
+    source: sensor.bedroom_3_inkbird_temperature
+    value_limits:
+      minimum: 40
+      maximum: 120
+    calibration:
+      data_points:
+      - [ 78.31, 77.54 ]
+      - [ 88.31, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  bedroom_3_relative_humidity:
+    source: sensor.bedroom_3_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 49.93, 53.0 ]
+      - [ 59.93, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  garage_temperature:
+    source: sensor.garage_ambient_air_temperature
+    value_limits:
+      minimum: 20
+      maximum: 140
+    calibration:
+      data_points:
+      - [ 76.18, 77.54 ]
+      - [ 86.18, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  garage_relative_humidity:
+    source: sensor.garage_ambient_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 50.76, 53.0 ]
+      - [ 60.76, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  guest_bathroom_temperature:
+    source: sensor.guest_bathroom_inkbird_temperature
+    value_limits:
+      minimum: 40
+      maximum: 120
+    calibration:
+      data_points:
+      - [ 78.22, 77.54 ]
+      - [ 88.22, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  guest_bathroom_relative_humidity:
+    source: sensor.guest_bathroom_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 49.86, 53.0 ]
+      - [ 59.86, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  laundry_room_temperature:
+    source: sensor.laundry_room_inkbird_temperature
+    value_limits:
+      minimum: 40
+      maximum: 130
+    calibration:
+      data_points:
+      - [ 77.83, 77.54 ]
+      - [ 87.83, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  laundry_room_relative_humidity:
+    source: sensor.laundry_room_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 50.59, 53.0 ]
+      - [ 60.59, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  living_room_temperature:
+    source: sensor.living_room_inkbird_temperature
+    value_limits:
+      minimum: 40
+      maximum: 120
+    calibration:
+      data_points:
+      - [ 78.35, 77.54 ]
+      - [ 88.35, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  living_room_relative_humidity:
+    source: sensor.living_room_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 49.08, 53.0 ]
+      - [ 59.08, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  master_bathroom_temperature:
+    source: sensor.master_bathroom_inkbird_temperature
+    value_limits:
+      minimum: 40
+      maximum: 120
+    calibration:
+      data_points:
+      - [ 77.86, 77.54 ]
+      - [ 87.86, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  master_bathroom_relative_humidity:
+    source: sensor.master_bathroom_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 49.87, 53.0 ]
+      - [ 59.87, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  master_bedroom_temperature:
+    source: sensor.master_bedroom_inkbird_temperature
+    value_limits:
+      minimum: 40
+      maximum: 120
+    calibration:
+      data_points:
+      - [ 76.57, 77.54 ]
+      - [ 86.57, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  master_bedroom_relative_humidity:
+    source: sensor.master_bedroom_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 49.37, 53.0 ]
+      - [ 59.37, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  office_temperature:
+    source: sensor.office_inkbird_temperature
+    value_limits:
+      minimum: 40
+      maximum: 120
+    calibration:
+      data_points:
+      - [ 77.86, 77.54 ]
+      - [ 87.86, 87.54 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  office_relative_humidity:
+    source: sensor.office_inkbird_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    calibration:
+      data_points:
+      - [ 50.12, 53.0 ]
+      - [ 60.12, 63.0 ]
+    window:
+      duration: 60
+    rounding:
+      precision: 1
+
+  pool_water_pressure:
+    source: sensor.pool_water_raw_pressure
+    value_limits:
+      minimum: 0
+      maximum: 100
+    window:
+      duration: 30
+    rounding:
+      precision: 1
+
+  pool_controller_cpu_fan_speed:
+    source: sensor.pool_controller_raw_cpu_fan_speed
+    value_limits:
+      minimum: 0
+      maximum: 100
+    window:
+      duration: 60
+    rounding:
+      precision: 0
+
+  pool_controller_input_voltage:
+    source: sensor.pool_controller_raw_input_voltage
+    value_limits:
+      minimum: 12
+      maximum: 32
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  pool_controller_raspberry_pi_voltage:
+    source: sensor.pool_controller_raw_raspberry_pi_voltage
+    value_limits:
+      minimum: 3
+      maximum: 7
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  pool_controller_case_temperature:
+    source: sensor.pool_controller_raw_case_temperature
+    value_limits:
+      minimum: 0
+      maximum: 200
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  pool_controller_cpu_temperature:
+    source: sensor.pool_controller_raw_cpu_temperature
+    value_limits:
+      minimum: 0
+      maximum: 250
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  pool_water_ph_level:
+    source: sensor.pool_water_raw_ph_level
+    value_limits:
+      minimum: 0
+      maximum: 14
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  pool_water_temperature:
+    source: sensor.pool_water_raw_temperature
+    value_limits:
+      minimum: 0
+      maximum: 120
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  intelliflo_watts_30s:
+    source: sensor.intelliflo_watts
+    value_limits:
+      minimum: 0
+      maximum: 4000
+    name: Intelliflo Watts (30s)
+    window:
+      duration: 30
+    rounding:
+      precision: 0
+
+  weatherflow_filtered_temperature:
+    source: sensor.weatherflow_temperature
+    value_limits:
+      minimum: -20
+      maximum: 140
+    name: Weatherflow Filtered Temperature
+    window:
+      duration: 60
+    rounding:
+      precision: 2
+
+  weatherflow_filtered_humidity:
+    source: sensor.weatherflow_humidity
+    value_limits:
+      minimum: 0
+      maximum: 100
+    name: Weatherflow Filtered Humidity
+    window:
+      duration: 60
+    rounding:
+      precision: 2

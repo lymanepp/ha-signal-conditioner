@@ -17,15 +17,13 @@ from custom_components.signal_conditioner.const import (
     CONF_ROUNDING,
     CONF_VALUE_LIMITS,
     CONF_WINDOW,
-    CONF_WINDOW_DURATION,
-    CONF_WINDOW_OUTPUT,
     DOMAIN,
     WINDOW_OUTPUT_LATEST,
     WINDOW_OUTPUT_MEAN,
 )
 
 
-def test_yaml_mean_window_flattens_to_runtime_shape() -> None:
+def test_yaml_mean_window_keeps_canonical_shape() -> None:
     """Mean window uses one duration and one publication boundary."""
     validated = CONFIG_SCHEMA(
         {
@@ -41,8 +39,8 @@ def test_yaml_mean_window_flattens_to_runtime_shape() -> None:
         }
     )
     data = validated[DOMAIN]["garage_humidity"]
-    assert data[CONF_WINDOW_DURATION] == 60
-    assert data[CONF_WINDOW_OUTPUT] == WINDOW_OUTPUT_MEAN
+    assert data[CONF_WINDOW][CONF_DURATION] == 60
+    assert data[CONF_WINDOW][CONF_OUTPUT] == WINDOW_OUTPUT_MEAN
 
 
 def test_yaml_latest_window_has_identical_shape() -> None:
@@ -61,8 +59,8 @@ def test_yaml_latest_window_has_identical_shape() -> None:
         }
     )
     data = validated[DOMAIN]["garage_humidity"]
-    assert data[CONF_WINDOW_DURATION] == 60
-    assert data[CONF_WINDOW_OUTPUT] == WINDOW_OUTPUT_LATEST
+    assert data[CONF_WINDOW][CONF_DURATION] == 60
+    assert data[CONF_WINDOW][CONF_OUTPUT] == WINDOW_OUTPUT_LATEST
 
 
 @pytest.mark.parametrize("output", ["minimum", "maximum", "garbage"])
@@ -86,11 +84,10 @@ def test_all_optional_sections_can_be_omitted() -> None:
     validated = CONFIG_SCHEMA({DOMAIN: {"plain": {CONF_SOURCE: "sensor.plain_raw"}}})
     data = validated[DOMAIN]["plain"]
     assert data[CONF_SOURCE] == "sensor.plain_raw"
-    assert CONF_MINIMUM not in data
-    assert CONF_MAXIMUM not in data
-    assert CONF_DATA_POINTS not in data
-    assert CONF_WINDOW_DURATION not in data
-    assert CONF_PRECISION not in data
+    assert CONF_VALUE_LIMITS not in data
+    assert CONF_CALIBRATION not in data
+    assert CONF_WINDOW not in data
+    assert CONF_ROUNDING not in data
 
 
 def test_empty_value_limits_is_a_noop() -> None:
@@ -99,8 +96,7 @@ def test_empty_value_limits_is_a_noop() -> None:
         {DOMAIN: {"plain": {CONF_SOURCE: "sensor.plain_raw", CONF_VALUE_LIMITS: {}}}}
     )
     data = validated[DOMAIN]["plain"]
-    assert CONF_MINIMUM not in data
-    assert CONF_MAXIMUM not in data
+    assert data[CONF_VALUE_LIMITS] == {}
 
 
 @pytest.mark.parametrize(
@@ -118,8 +114,8 @@ def test_each_value_limit_is_independently_optional(
         {DOMAIN: {"limited": {CONF_SOURCE: "sensor.raw", CONF_VALUE_LIMITS: limits}}}
     )
     data = validated[DOMAIN]["limited"]
-    assert present in data
-    assert absent not in data
+    assert present in data[CONF_VALUE_LIMITS]
+    assert absent not in data[CONF_VALUE_LIMITS]
 
 
 def test_calibration_requires_data_points() -> None:
@@ -142,7 +138,7 @@ def test_calibration_degree_defaults_to_one() -> None:
             }
         }
     )
-    assert validated[DOMAIN]["calibrated"][CONF_DEGREE] == 1
+    assert validated[DOMAIN]["calibrated"][CONF_CALIBRATION][CONF_DEGREE] == 1
 
 
 def test_window_output_defaults_to_mean() -> None:
@@ -157,7 +153,7 @@ def test_window_output_defaults_to_mean() -> None:
             }
         }
     )
-    assert validated[DOMAIN]["windowed"][CONF_WINDOW_OUTPUT] == WINDOW_OUTPUT_MEAN
+    assert validated[DOMAIN]["windowed"][CONF_WINDOW][CONF_OUTPUT] == WINDOW_OUTPUT_MEAN
 
 
 def test_window_still_requires_duration() -> None:
@@ -173,4 +169,4 @@ def test_empty_rounding_defaults_to_two_places() -> None:
     validated = CONFIG_SCHEMA(
         {DOMAIN: {"rounded": {CONF_SOURCE: "sensor.raw", CONF_ROUNDING: {}}}}
     )
-    assert validated[DOMAIN]["rounded"][CONF_PRECISION] == 2
+    assert validated[DOMAIN]["rounded"][CONF_ROUNDING][CONF_PRECISION] == 2

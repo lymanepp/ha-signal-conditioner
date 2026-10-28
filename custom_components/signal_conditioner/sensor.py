@@ -42,10 +42,55 @@ from homeassistant.helpers.event import (
 )
 
 from .config import pipeline_config_from_data
-from .const import CONF_HIDE_SOURCE, CONF_STATE_CLASS
+from .const import CONF_HIDE_SOURCE, CONF_STATE_CLASS, DOMAIN
 from .pipeline import ConditioningPipeline, Disposition
 
 _LOGGER = logging.getLogger(__name__)
+
+
+_HIDE_OWNERS = "hide_owners"
+_HIDE_OWNED = "hide_owned"
+
+
+def _hide_state(hass: HomeAssistant) -> tuple[dict[str, set[str]], set[str]]:
+    data = hass.data.setdefault(DOMAIN, {})
+    owners = data.setdefault(_HIDE_OWNERS, {})
+    owned = data.setdefault(_HIDE_OWNED, set())
+    return owners, owned
+
+
+def _claim_hidden_source(hass: HomeAssistant, source: str, entry_id: str) -> None:
+    owners, owned = _hide_state(hass)
+    source_owners = owners.setdefault(source, set())
+    source_owners.add(entry_id)
+
+    registry = er.async_get(hass)
+    source_entry = registry.async_get(source)
+    if source_entry is not None and source_entry.hidden_by is None:
+        registry.async_update_entity(source, hidden_by=RegistryEntryHider.INTEGRATION)
+        owned.add(source)
+
+
+def _release_hidden_source(hass: HomeAssistant, source: str, entry_id: str) -> None:
+    owners, owned = _hide_state(hass)
+    source_owners = owners.get(source)
+    if source_owners is None:
+        return
+    source_owners.discard(entry_id)
+    if source_owners:
+        return
+    owners.pop(source, None)
+
+    if source not in owned:
+        return
+    registry = er.async_get(hass)
+    source_entry = registry.async_get(source)
+    if (
+        source_entry is not None
+        and source_entry.hidden_by is RegistryEntryHider.INTEGRATION
+    ):
+        registry.async_update_entity(source, hidden_by=None)
+    owned.discard(source)
 
 
 async def async_setup_entry(
@@ -65,8 +110,10 @@ class SignalConditionerSensor(SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         config = entry.data
+        self._entry_id = entry.entry_id
         self._source_entity_id = config[CONF_SOURCE]
         self._source_attribute = config.get(CONF_ATTRIBUTE)
+        self._hide_source = bool(config.get(CONF_HIDE_SOURCE))
         self._pipeline = ConditioningPipeline(pipeline_config_from_data(config))
 
         self._attr_unique_id = f"signal_conditioner.{entry.unique_id or entry.entry_id}"
@@ -81,17 +128,11 @@ class SignalConditionerSensor(SensorEntity):
         self._attr_icon = config.get(CONF_ICON)
         self._attr_available = False
 
-        if config.get(CONF_HIDE_SOURCE):
-            registry = er.async_get(hass)
-            source_entry = registry.async_get(self._source_entity_id)
-            if source_entry is not None and source_entry.hidden_by is None:
-                registry.async_update_entity(
-                    self._source_entity_id,
-                    hidden_by=RegistryEntryHider.INTEGRATION,
-                )
-
     async def async_added_to_hass(self) -> None:
         """Prime the sensor, subscribe to the source, and start its interval."""
+        if self._hide_source:
+            _claim_hidden_source(self.hass, self._source_entity_id, self._entry_id)
+
         if (state := self.hass.states.get(self._source_entity_id)) is not None:
             self._process_source_state(state, write_state=False)
 
@@ -110,12 +151,16 @@ class SignalConditionerSensor(SensorEntity):
             )
             self.async_on_remove(cancel_interval)
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Release source hiding owned by this entity."""
+        if self._hide_source:
+            _release_hidden_source(self.hass, self._source_entity_id, self._entry_id)
+
     @callback
     def _async_source_state_listener(self, event: Event[EventStateChangedData]) -> None:
         """Handle source entity state changes."""
         new_state = event.data["new_state"]
         if new_state is None:
-            self._handle_source_unavailable()
             return
         self._process_source_state(new_state)
 
@@ -123,13 +168,11 @@ class SignalConditionerSensor(SensorEntity):
     def _process_source_state(self, state: State, *, write_state: bool = True) -> None:
         """Extract and condition one source state."""
         if state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            self._handle_source_unavailable(write_state=write_state)
             return
 
         if self._source_attribute:
             raw_value = state.attributes.get(self._source_attribute)
             if raw_value is None:
-                self._handle_source_unavailable(write_state=write_state)
                 return
         else:
             raw_value = state.state
@@ -145,15 +188,6 @@ class SignalConditionerSensor(SensorEntity):
                 self._source_entity_id,
                 result.reason,
             )
-
-    @callback
-    def _handle_source_unavailable(self, *, write_state: bool = True) -> None:
-        """Remain unavailable only until the first value has been published."""
-        if self._attr_native_value is not None or not self.available:
-            return
-        self._attr_available = False
-        if write_state:
-            self.async_write_ha_state()
 
     @callback
     def _async_interval(self, _now: datetime) -> None:

@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from .calibration import CalibrationError, PolynomialCalibration
-from .const import MAX_WINDOW_SECONDS
+
+MAX_WINDOW_SECONDS = 86400
 
 
 class PipelineConfigurationError(ValueError):

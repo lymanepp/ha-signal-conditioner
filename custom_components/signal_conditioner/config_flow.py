@@ -39,11 +39,13 @@ from homeassistant.helpers.selector import (
 
 from .calibration import (
     CalibrationError,
+    PolynomialCalibration,
     format_data_points_text,
     parse_data_points_text,
 )
 from .config import pipeline_config_from_data
 from .const import (
+    CONF_CALIBRATION,
     CONF_DATA_POINTS,
     CONF_DATA_POINTS_TEXT,
     CONF_DEGREE,
@@ -57,9 +59,10 @@ from .const import (
     CONF_MINIMUM,
     CONF_OUTPUT,
     CONF_PRECISION,
+    CONF_ROUNDING,
     CONF_STATE_CLASS,
-    CONF_WINDOW_DURATION,
-    CONF_WINDOW_OUTPUT,
+    CONF_VALUE_LIMITS,
+    CONF_WINDOW,
     DEFAULT_DEGREE,
     DEFAULT_PRECISION,
     DOMAIN,
@@ -67,7 +70,7 @@ from .const import (
     WINDOW_OUTPUT_LATEST,
     WINDOW_OUTPUT_MEAN,
 )
-from .pipeline import PipelineConfigurationError
+from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
 
 _METADATA_KEYS = (
     CONF_UNIT_OF_MEASUREMENT,
@@ -107,17 +110,22 @@ def _source_unique_id(data: Mapping[str, Any]) -> str:
     return f"{source}::{attribute}" if attribute else source
 
 
-def _source_schema(defaults: Mapping[str, Any]) -> vol.Schema:
-    return vol.Schema(
+def _source_schema(
+    defaults: Mapping[str, Any], *, reconfigure: bool = False
+) -> vol.Schema:
+    fields: dict[vol.Marker, Any] = {}
+    if not reconfigure:
+        fields[vol.Required(CONF_SOURCE, default=defaults.get(CONF_SOURCE))] = (
+            EntitySelector(EntitySelectorConfig(domain=[SENSOR_DOMAIN]))
+        )
+        attribute_key = vol.Optional(
+            CONF_ATTRIBUTE, default=defaults.get(CONF_ATTRIBUTE, "")
+        )
+        fields[attribute_key] = TextSelector()
+    fields.update(
         {
-            vol.Required(
-                CONF_SOURCE, default=defaults.get(CONF_SOURCE)
-            ): EntitySelector(EntitySelectorConfig(domain=[SENSOR_DOMAIN])),
             vol.Optional(
                 CONF_NAME, default=defaults.get(CONF_NAME, "")
-            ): TextSelector(),
-            vol.Optional(
-                CONF_ATTRIBUTE, default=defaults.get(CONF_ATTRIBUTE, "")
             ): TextSelector(),
             vol.Required(
                 CONF_HIDE_SOURCE, default=defaults.get(CONF_HIDE_SOURCE, False)
@@ -138,25 +146,27 @@ def _source_schema(defaults: Mapping[str, Any]) -> vol.Schema:
             _suggested_optional(CONF_ICON, defaults): IconSelector(),
             vol.Required(
                 CONF_ENABLE_LIMITS,
-                default=CONF_MINIMUM in defaults or CONF_MAXIMUM in defaults,
+                default=CONF_VALUE_LIMITS in defaults,
             ): BooleanSelector(),
             vol.Required(
                 CONF_ENABLE_CALIBRATION,
-                default=bool(defaults.get(CONF_DATA_POINTS)),
+                default=CONF_CALIBRATION in defaults,
             ): BooleanSelector(),
             vol.Required(
                 CONF_ENABLE_WINDOW,
-                default=float(defaults.get(CONF_WINDOW_DURATION, 0)) > 0,
+                default=CONF_WINDOW in defaults,
             ): BooleanSelector(),
             vol.Required(
                 CONF_ENABLE_ROUNDING,
-                default=CONF_PRECISION in defaults,
+                default=CONF_ROUNDING in defaults,
             ): BooleanSelector(),
         }
     )
+    return vol.Schema(fields)
 
 
 def _value_limits_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    defaults = _section(defaults, CONF_VALUE_LIMITS)
     number = NumberSelectorConfig(mode=NumberSelectorMode.BOX)
     return vol.Schema(
         {
@@ -167,6 +177,7 @@ def _value_limits_schema(defaults: Mapping[str, Any]) -> vol.Schema:
 
 
 def _calibration_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    defaults = _section(defaults, CONF_CALIBRATION)
     points = format_data_points_text(defaults.get(CONF_DATA_POINTS, []))
     return vol.Schema(
         {
@@ -185,8 +196,9 @@ def _calibration_schema(defaults: Mapping[str, Any]) -> vol.Schema:
 
 
 def _window_schema(defaults: Mapping[str, Any]) -> vol.Schema:
-    duration = defaults.get(CONF_WINDOW_DURATION, 60)
-    output = str(defaults.get(CONF_WINDOW_OUTPUT, WINDOW_OUTPUT_MEAN))
+    defaults = _section(defaults, CONF_WINDOW)
+    duration = defaults.get(CONF_DURATION, 60)
+    output = str(defaults.get(CONF_OUTPUT, WINDOW_OUTPUT_MEAN))
     return vol.Schema(
         {
             vol.Required(
@@ -204,6 +216,7 @@ def _window_schema(defaults: Mapping[str, Any]) -> vol.Schema:
 
 
 def _rounding_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    defaults = _section(defaults, CONF_ROUNDING)
     return vol.Schema(
         {
             vol.Required(
@@ -213,6 +226,11 @@ def _rounding_schema(defaults: Mapping[str, Any]) -> vol.Schema:
             )
         }
     )
+
+
+def _section(defaults: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = defaults.get(key)
+    return value if isinstance(value, Mapping) else {}
 
 
 def _normalize_source(
@@ -290,21 +308,29 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            normalized: dict[str, Any] = {}
-            for key in (CONF_MINIMUM, CONF_MAXIMUM):
-                if user_input.get(key) not in (None, ""):
-                    normalized[key] = float(user_input[key])
             try:
-                pipeline_config_from_data({**self._flow_data, **normalized})
-            except (PipelineConfigurationError, ValueError):
+                normalized = {
+                    key: float(user_input[key])
+                    for key in (CONF_MINIMUM, CONF_MAXIMUM)
+                    if user_input.get(key) not in (None, "")
+                }
+                minimum = normalized.get(CONF_MINIMUM)
+                maximum = normalized.get(CONF_MAXIMUM)
+                if minimum is not None and maximum is not None and minimum > maximum:
+                    raise ValueError
+            except (TypeError, ValueError):
                 errors["base"] = "invalid_configuration"
             else:
-                self._flow_data.update(normalized)
+                self._flow_data[CONF_VALUE_LIMITS] = normalized
                 self._completed.add(CONF_ENABLE_LIMITS)
                 return await self._next_step()
         return self.async_show_form(
             step_id="value_limits",
-            data_schema=_value_limits_schema(user_input or self._defaults),
+            data_schema=_value_limits_schema(
+                {CONF_VALUE_LIMITS: user_input}
+                if user_input is not None
+                else self._defaults
+            ),
             errors=errors,
         )
 
@@ -321,16 +347,20 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_DATA_POINTS: [list(pair) for pair in points],
                     CONF_DEGREE: int(user_input.get(CONF_DEGREE, DEFAULT_DEGREE)),
                 }
-                pipeline_config_from_data({**self._flow_data, **normalized})
-            except (CalibrationError, PipelineConfigurationError, ValueError):
+                PolynomialCalibration.fit(points, degree=normalized[CONF_DEGREE])
+            except (CalibrationError, TypeError, ValueError):
                 errors["base"] = "invalid_configuration"
             else:
-                self._flow_data.update(normalized)
+                self._flow_data[CONF_CALIBRATION] = normalized
                 self._completed.add(CONF_ENABLE_CALIBRATION)
                 return await self._next_step()
         return self.async_show_form(
             step_id="calibration",
-            data_schema=_calibration_schema(user_input or self._defaults),
+            data_schema=_calibration_schema(
+                {CONF_CALIBRATION: user_input}
+                if user_input is not None
+                else self._defaults
+            ),
             errors=errors,
         )
 
@@ -341,24 +371,23 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 seconds = timedelta(**user_input[CONF_DURATION]).total_seconds()
-                if seconds <= 0:
+                if not 0 < seconds <= MAX_WINDOW_SECONDS:
                     raise ValueError
                 normalized = {
-                    CONF_WINDOW_DURATION: seconds,
-                    CONF_WINDOW_OUTPUT: str(
-                        user_input.get(CONF_OUTPUT, WINDOW_OUTPUT_MEAN)
-                    ),
+                    CONF_DURATION: seconds,
+                    CONF_OUTPUT: str(user_input.get(CONF_OUTPUT, WINDOW_OUTPUT_MEAN)),
                 }
-                pipeline_config_from_data({**self._flow_data, **normalized})
-            except (PipelineConfigurationError, TypeError, ValueError):
+            except (TypeError, ValueError):
                 errors["base"] = "invalid_configuration"
             else:
-                self._flow_data.update(normalized)
+                self._flow_data[CONF_WINDOW] = normalized
                 self._completed.add(CONF_ENABLE_WINDOW)
                 return await self._next_step()
         return self.async_show_form(
             step_id="window",
-            data_schema=_window_schema(user_input or self._defaults),
+            data_schema=_window_schema(
+                {CONF_WINDOW: user_input} if user_input is not None else self._defaults
+            ),
             errors=errors,
         )
 
@@ -369,16 +398,19 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 normalized = {CONF_PRECISION: int(user_input[CONF_PRECISION])}
-                pipeline_config_from_data({**self._flow_data, **normalized})
-            except (PipelineConfigurationError, TypeError, ValueError):
+            except (TypeError, ValueError):
                 errors["base"] = "invalid_configuration"
             else:
-                self._flow_data.update(normalized)
+                self._flow_data[CONF_ROUNDING] = normalized
                 self._completed.add(CONF_ENABLE_ROUNDING)
                 return await self._next_step()
         return self.async_show_form(
             step_id="rounding",
-            data_schema=_rounding_schema(user_input or self._defaults),
+            data_schema=_rounding_schema(
+                {CONF_ROUNDING: user_input}
+                if user_input is not None
+                else self._defaults
+            ),
             errors=errors,
         )
 
@@ -397,9 +429,16 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            source_input = dict(user_input)
+            if self._reconfigure_entry is not None:
+                source_input[CONF_SOURCE] = self._reconfigure_entry.data[CONF_SOURCE]
+                if CONF_ATTRIBUTE in self._reconfigure_entry.data:
+                    source_input[CONF_ATTRIBUTE] = self._reconfigure_entry.data[
+                        CONF_ATTRIBUTE
+                    ]
             try:
                 self._flow_data, self._enabled = _normalize_source(
-                    self.hass, user_input
+                    self.hass, source_input
                 )
             except PipelineConfigurationError:
                 errors["base"] = "invalid_configuration"
@@ -408,7 +447,10 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 return await self._next_step()
         return self.async_show_form(
             step_id=step_id,
-            data_schema=_source_schema(user_input or self._defaults),
+            data_schema=_source_schema(
+                user_input or self._defaults,
+                reconfigure=self._reconfigure_entry is not None,
+            ),
             errors=errors,
         )
 
@@ -439,8 +481,6 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         data = dict(self._flow_data)
         pipeline_config_from_data(data)
         if self._reconfigure_entry:
-            await self.async_set_unique_id(self._reconfigure_entry.unique_id)
-            self._abort_if_unique_id_mismatch()
             return self.async_update_reload_and_abort(
                 self._reconfigure_entry, title=data[CONF_NAME], data=data
             )

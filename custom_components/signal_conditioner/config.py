@@ -17,8 +17,6 @@ from .const import (
     CONF_ROUNDING,
     CONF_VALUE_LIMITS,
     CONF_WINDOW,
-    CONF_WINDOW_DURATION,
-    CONF_WINDOW_OUTPUT,
     DEFAULT_DEGREE,
     DEFAULT_PRECISION,
     WINDOW_OUTPUT_MEAN,
@@ -26,47 +24,32 @@ from .const import (
 from .pipeline import PipelineConfig, build_pipeline_config
 
 
-def flatten_configuration(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Flatten concise YAML behavior blocks into config-entry data."""
-    flat = dict(data)
-
-    value_limits = flat.pop(CONF_VALUE_LIMITS, None)
-    if isinstance(value_limits, Mapping):
-        for key in (CONF_MINIMUM, CONF_MAXIMUM):
-            if key in value_limits:
-                flat[key] = value_limits[key]
-
-    calibration = flat.pop(CONF_CALIBRATION, None)
-    if isinstance(calibration, Mapping):
-        for key in (CONF_DATA_POINTS, CONF_DEGREE):
-            if key in calibration:
-                flat[key] = calibration[key]
-
-    window = flat.pop(CONF_WINDOW, None)
-    if isinstance(window, Mapping):
-        if CONF_DURATION in window:
-            flat[CONF_WINDOW_DURATION] = window[CONF_DURATION]
-        flat[CONF_WINDOW_OUTPUT] = window.get(CONF_OUTPUT, WINDOW_OUTPUT_MEAN)
-
-    rounding = flat.pop(CONF_ROUNDING, None)
-    if isinstance(rounding, Mapping):
-        flat[CONF_PRECISION] = rounding.get(CONF_PRECISION, DEFAULT_PRECISION)
-
-    return flat
-
-
 def pipeline_config_from_data(data: Mapping[str, Any]) -> PipelineConfig:
-    """Build the pure pipeline configuration from persisted entry data."""
-    flat = flatten_configuration(data)
+    """Build the pure pipeline configuration from canonical nested data."""
+    value_limits = _mapping(data.get(CONF_VALUE_LIMITS))
+    calibration = _mapping(data.get(CONF_CALIBRATION))
+    window = _mapping(data.get(CONF_WINDOW))
+    rounding = _mapping(data.get(CONF_ROUNDING))
+
     return build_pipeline_config(
-        data_points=flat.get(CONF_DATA_POINTS, ()),
-        degree=int(flat.get(CONF_DEGREE, DEFAULT_DEGREE)),
-        minimum=_optional_float(flat, CONF_MINIMUM),
-        maximum=_optional_float(flat, CONF_MAXIMUM),
-        precision=(int(flat[CONF_PRECISION]) if CONF_PRECISION in flat else None),
-        window_duration=float(flat.get(CONF_WINDOW_DURATION, 0)),
-        window_output=str(flat.get(CONF_WINDOW_OUTPUT, WINDOW_OUTPUT_MEAN)),
+        data_points=calibration.get(CONF_DATA_POINTS, ()),
+        degree=int(calibration.get(CONF_DEGREE, DEFAULT_DEGREE)),
+        minimum=_optional_float(value_limits, CONF_MINIMUM),
+        maximum=_optional_float(value_limits, CONF_MAXIMUM),
+        precision=(
+            int(rounding.get(CONF_PRECISION, DEFAULT_PRECISION))
+            if CONF_ROUNDING in data
+            else None
+        ),
+        window_duration=float(window.get(CONF_DURATION, 0)),
+        window_output=str(window.get(CONF_OUTPUT, WINDOW_OUTPUT_MEAN)),
     )
+
+
+def _mapping(value: object) -> Mapping[str, Any]:
+    if isinstance(value, Mapping):
+        return cast(Mapping[str, Any], value)
+    return {}
 
 
 def _optional_float(data: Mapping[str, Any], key: str) -> float | None:
