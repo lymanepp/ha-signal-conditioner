@@ -6,6 +6,7 @@ __pycache__
 */dist/*
 
 # project tooling
+.venv/
 .mypy_cache/
 .ruff_cache/
 .coverage

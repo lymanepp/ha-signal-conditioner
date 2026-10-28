@@ -4,6 +4,8 @@ set -e
 
 cd "$(dirname "$0")/.."
 
+export PATH="${PWD}/.venv/bin:${PATH}"
+
 # Create config dir if not present
 if [[ ! -d "${PWD}/config" ]]; then
   mkdir -p "${PWD}/config"

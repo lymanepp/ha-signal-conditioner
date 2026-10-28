@@ -15,7 +15,7 @@
         "python.experiments.optOutFrom": [
           "pythonTestAdapter"
         ],
-        "python.pythonPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
         "python.testing.pytestArgs": [
           "--no-cov"
         ],

@@ -4,7 +4,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-python3 -m venv .venv
+if ! .venv/bin/python3 -c "" >/dev/null 2>&1; then
+  python3 -m venv --clear .venv
+fi
 
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install --requirement requirements.txt
