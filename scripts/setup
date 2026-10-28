@@ -4,7 +4,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-if ! .venv/bin/python3 -c "" >/dev/null 2>&1; then
+# Recreate the venv when its interpreter is missing or broken, it has no pip
+# (e.g. left over from an interrupted "python3 -m venv"), or it's a different
+# Python version than the image (e.g. after changing the devcontainer image).
+want="$(python3 -c 'import sys; print(sys.version_info[:2])')"
+have="$(.venv/bin/python3 -c 'import sys, pip; print(sys.version_info[:2])' 2>/dev/null || true)"
+if [[ "${have}" != "${want}" ]]; then
   python3 -m venv --clear .venv
 fi
 

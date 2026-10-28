@@ -9,6 +9,8 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_registry import RegistryEntryHider
 
 from custom_components.signal_conditioner.const import (
     CONF_CALIBRATION,
@@ -106,10 +108,9 @@ async def test_unavailable_source_retains_last_valid_value(hass: HomeAssistant) 
     await hass.async_block_till_done()
     assert hass.states.get("sensor.stable_value").state == "3.0"
 
+
 async def test_hide_source_is_reversed_on_unload(hass: HomeAssistant) -> None:
     """Undo only source hiding owned by Signal Conditioner."""
-    from homeassistant.helpers import entity_registry as er
-    from homeassistant.helpers.entity_registry import RegistryEntryHider
 
     registry = er.async_get(hass)
     registry.async_get_or_create(

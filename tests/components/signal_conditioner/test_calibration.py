@@ -39,7 +39,7 @@ def test_quadratic_calibration_with_repeated_samples() -> None:
             [100, 3.5],
             [100, 3.0],
         ],
-        degree=2
+        degree=2,
     )
 
     assert calibration.evaluate(43.2) == pytest.approx(3.327, abs=0.001)

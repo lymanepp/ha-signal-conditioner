@@ -18,7 +18,14 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
-import voluptuous as vol
+
+try:
+    # Home Assistant replaced voluptuous with probatio, an API-compatible
+    # drop-in (2026.10 depends on probatio; 2026.8 and earlier, including the
+    # 2026.7.2 minimum in hacs.json, only on voluptuous).
+    import probatio as vol
+except ImportError:
+    import voluptuous as vol  # type: ignore[no-redef]
 
 from .config import pipeline_config_from_data
 from .const import (
