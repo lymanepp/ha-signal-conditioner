@@ -49,6 +49,7 @@ from homeassistant.util import dt as dt_util
 from .config import availability_from_data, pipeline_config_from_data
 from .const import CONF_HIDE_SOURCE, CONF_STATE_CLASS, DOMAIN
 from .pipeline import ConditioningPipeline, Disposition
+from .source_health import SourceReferenceMonitor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,6 +136,10 @@ class SignalConditionerSensor(RestoreSensor):
         self._pipeline = ConditioningPipeline(pipeline_config_from_data(config))
         self._follow_source, self._stale_after = availability_from_data(config)
         self._cancel_stale: CALLBACK_TYPE | None = None
+        self._source_event_generation = 0
+        self._source_health = SourceReferenceMonitor(
+            hass, entry.entry_id, config[CONF_NAME], self._source_entity_id
+        )
 
         self._attr_unique_id = f"signal_conditioner.{entry.unique_id or entry.entry_id}"
         self._attr_name = config[CONF_NAME]
@@ -157,16 +162,6 @@ class SignalConditionerSensor(RestoreSensor):
         if self._hide_source:
             _claim_hidden_source(self.hass, self._source_entity_id, self._entry_id)
 
-        state = self.hass.states.get(self._source_entity_id)
-        if state is not None and state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            self._process_source_state(state, write_state=False)
-        if not self._has_value and not (
-            self._follow_source
-            and state is not None
-            and state.state == STATE_UNAVAILABLE
-        ):
-            await self._async_restore()
-
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
@@ -174,6 +169,24 @@ class SignalConditionerSensor(RestoreSensor):
                 self._async_source_state_listener,
             )
         )
+        self._source_health.async_start(self.async_on_remove)
+        # Subscribe before the initial snapshot: source entities may appear or
+        # change while this entity is being added, especially during reloads.
+        # Do not await restoration until the source is being observed.
+        state = self.hass.states.get(self._source_entity_id)
+        if state is not None:
+            if state.state == STATE_UNKNOWN and self._follow_source:
+                self._attr_available = True
+                self._attr_native_value = None
+            elif state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                self._process_source_state(state, write_state=False)
+        if not self._has_value and not (
+            self._follow_source
+            and state is not None
+            and state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE)
+        ):
+            await self._async_restore()
+
         if self._stale_after is not None:
             # Unchanged re-reports prove the source is alive and end staleness.
             self.async_on_remove(
@@ -196,8 +209,13 @@ class SignalConditionerSensor(RestoreSensor):
 
     async def _async_restore(self) -> None:
         """Show the last value from before the restart until the source reports."""
+        generation = self._source_event_generation
         last_data = await self.async_get_last_sensor_data()
         last_state = await self.async_get_last_state()
+        # A live source event received while waiting on Recorder must win
+        # over an older persisted value (including unknown/unavailable).
+        if generation != self._source_event_generation:
+            return
         if last_data is None or last_state is None:
             return
         try:
@@ -221,6 +239,15 @@ class SignalConditionerSensor(RestoreSensor):
     @callback
     def _async_source_state_listener(self, event: Event[EventStateChangedData]) -> None:
         """Handle source entity state changes."""
+        self._source_event_generation += 1
+        self._source_health.async_source_changed()
+        # Sources may be created after the conditioner at startup. Retry the
+        # initial hide once the source appears in the entity registry.
+        if (
+            self._hide_source
+            and self._source_entity_id not in _hide_state(self.hass)[1]
+        ):
+            _claim_hidden_source(self.hass, self._source_entity_id, self._entry_id)
         new_state = event.data["new_state"]
         if new_state is None or new_state.state == STATE_UNAVAILABLE:
             if self._follow_source:

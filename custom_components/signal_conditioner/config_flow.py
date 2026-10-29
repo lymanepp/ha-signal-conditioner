@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import timedelta
+import logging
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -11,7 +12,12 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    SOURCE_IMPORT,
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+)
 from homeassistant.const import (
     CONF_ATTRIBUTE,
     CONF_DEVICE_CLASS,
@@ -88,6 +94,8 @@ from .const import (
     WINDOW_OUTPUT_MEAN,
 )
 from .pipeline import MAX_WINDOW_SECONDS, LimitMode, PipelineConfigurationError
+
+_LOGGER = logging.getLogger(__name__)
 
 _METADATA_KEYS = (
     CONF_UNIT_OF_MEASUREMENT,
@@ -508,6 +516,13 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         for entry in self._async_current_entries(include_ignore=False):
             if entry.unique_id != unique_id:
                 continue
+            if entry.source != SOURCE_IMPORT:
+                _LOGGER.error(
+                    "Skipping Signal Conditioner YAML key '%s': a UI-created "
+                    "configuration already owns this unique ID",
+                    unique_id,
+                )
+                return self.async_abort(reason="already_configured")
             if entry.data != user_input or entry.title != user_input[CONF_NAME]:
                 # The entry's update listener reloads it when it is loaded.
                 self.hass.config_entries.async_update_entry(

@@ -147,3 +147,73 @@ async def test_hide_source_is_reversed_on_unload(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert registry.async_get("sensor.raw_hidden").hidden_by is None
+
+
+async def test_late_created_source_is_hidden_when_requested(hass: HomeAssistant) -> None:
+    """Resolve late startup dependencies rather than leaving a source visible."""
+    entry = ConfigEntry(
+        version=1,
+        minor_version=0,
+        domain=DOMAIN,
+        title="Conditioned late sensor",
+        data={
+            CONF_NAME: "Conditioned late sensor",
+            CONF_SOURCE: "sensor.late_raw",
+            "hide_source": True,
+        },
+        source="user",
+        unique_id="conditioned_late_sensor",
+        discovery_keys={},
+        options={},
+        subentries_data=[],
+    )
+    hass.config_entries._entries[entry.entry_id] = entry
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    assert registry.async_get("sensor.late_raw") is None
+    registry.async_get_or_create(
+        "sensor", "test", "late_raw", suggested_object_id="late_raw"
+    )
+    hass.states.async_set("sensor.late_raw", "10")
+    await hass.async_block_till_done()
+    assert (
+        registry.async_get("sensor.late_raw").hidden_by
+        is RegistryEntryHider.INTEGRATION
+    )
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get("sensor.late_raw").hidden_by is None
+
+
+async def test_unknown_source_does_not_restore_previous_value(
+    hass: HomeAssistant,
+) -> None:
+    """An existing unknown source must be honored when follow_source is on."""
+    from homeassistant.const import STATE_UNKNOWN
+
+    hass.states.async_set("sensor.unknown_raw", STATE_UNKNOWN)
+    entry = ConfigEntry(
+        version=1,
+        minor_version=0,
+        domain=DOMAIN,
+        title="Unknown raw",
+        data={CONF_NAME: "Unknown raw", CONF_SOURCE: "sensor.unknown_raw"},
+        source="user",
+        unique_id="unknown_raw_conditioned",
+        discovery_keys={},
+        options={},
+        subentries_data=[],
+    )
+    hass.config_entries._entries[entry.entry_id] = entry
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    conditioned = [
+        state
+        for state in hass.states.async_all("sensor")
+        if state.entity_id != "sensor.unknown_raw"
+    ]
+    assert len(conditioned) == 1
+    assert conditioned[0].state == STATE_UNKNOWN

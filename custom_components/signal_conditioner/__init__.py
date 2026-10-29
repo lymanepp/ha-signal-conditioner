@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 import logging
 from typing import Any
 
@@ -15,9 +18,12 @@ from homeassistant.const import (
     CONF_SOURCE,
     CONF_UNIQUE_ID,
     CONF_UNIT_OF_MEASUREMENT,
+    SERVICE_RELOAD,
 )
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import config_validation as cv, reload as reload_helper
+from homeassistant.helpers.issue_registry import async_delete_issue
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
 try:
@@ -59,8 +65,25 @@ from .const import (
     WINDOW_OUTPUT_MEAN,
 )
 from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
+from .source_health import source_issue_id
 
 _LOGGER = logging.getLogger(__name__)
+
+EVENT_YAML_RELOADED = f"event_{DOMAIN}_reloaded"
+_YAML_RUNTIME = "yaml_runtime"
+
+
+@dataclass(slots=True)
+class YamlRuntime:
+    """Protect YAML reconciliation and track startup imports."""
+
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    startup_tasks: list[asyncio.Task[Any]] = field(default_factory=list)
+    initialized: bool = False
+
+
+def _yaml_runtime(hass: HomeAssistant) -> YamlRuntime:
+    return hass.data.setdefault(DOMAIN, {}).setdefault(_YAML_RUNTIME, YamlRuntime())
 
 
 def _validate_signal_conditioner(value: dict[str, Any]) -> dict[str, Any]:
@@ -149,48 +172,92 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Import YAML definitions into config entries.
+def _yaml_entry_data(yaml_config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Prepare all YAML definitions before any entry is changed."""
+    prepared: dict[str, dict[str, Any]] = {}
+    for object_id, raw_config in yaml_config.items():
+        data = dict(raw_config)
+        data[CONF_UNIQUE_ID] = object_id
+        data.setdefault(CONF_NAME, object_id.replace("_", " ").title())
+        prepared[object_id] = data
+    return prepared
 
-    The YAML is the source of truth for imported entries: an entry whose key
-    is no longer in the YAML is removed, so deleting or renaming a key does
-    not leave an orphaned sensor behind. Entries created in the UI are never
-    touched. (When the YAML fails validation this function is not called, so
-    a typo cannot delete anything.)
-    """
-    yaml_config: dict[str, Any] = config.get(DOMAIN, {})
+
+async def _async_sync_yaml_entries(
+    hass: HomeAssistant, yaml_config: Mapping[str, Any]
+) -> None:
+    """Reconcile YAML-owned entries without touching UI-owned entries."""
+    prepared = _yaml_entry_data(yaml_config)
+
+    # Remove old entries first, so renaming a YAML key does not temporarily
+    # create two entities (or two owners of the same hidden source).
     for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.source == SOURCE_IMPORT and entry.unique_id not in yaml_config:
-            _LOGGER.warning(
+        if entry.source == SOURCE_IMPORT and entry.unique_id not in prepared:
+            _LOGGER.info(
                 "Removing Signal Conditioner '%s': its YAML key was removed",
                 entry.unique_id,
             )
-            hass.async_create_task(hass.config_entries.async_remove(entry.entry_id))
+            await hass.config_entries.async_remove(entry.entry_id)
 
-    for object_id, raw_config in yaml_config.items():
-        entry_data = dict(raw_config)
-        entry_data[CONF_UNIQUE_ID] = object_id
-        entry_data.setdefault(CONF_NAME, object_id.replace("_", " ").title())
-        hass.async_create_task(
-            hass.config_entries.flow.async_init(
-                DOMAIN,
-                context={"source": SOURCE_IMPORT},
-                data=entry_data,
-            )
+    for entry_data in prepared.values():
+        await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_IMPORT}, data=entry_data
         )
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Import YAML entries and register a live, admin-only YAML reload action."""
+    runtime = _yaml_runtime(hass)
+    if runtime.initialized:
+        return True
+    runtime.initialized = True
+
+    # Do not await config-entry imports in the integration's initial setup:
+    # a created entry may need to finish setting up this same integration.
+    # The reload action awaits these startup operations before reconciling.
+    runtime.startup_tasks.append(
+        hass.async_create_task(_async_sync_yaml_entries(hass, config.get(DOMAIN, {})))
+    )
+
+    async def async_reload_yaml(call: ServiceCall) -> None:
+        """Reload and validate YAML before changing any existing entries."""
+        async with runtime.lock:
+            reloaded_config = await reload_helper.async_integration_yaml_config(
+                hass, DOMAIN, raise_on_failure=True
+            )
+            # Validate everything before adding, changing, or removing entries.
+            yaml_config = CONFIG_SCHEMA({DOMAIN: reloaded_config.get(DOMAIN, {})})[
+                DOMAIN
+            ]
+
+            startup_tasks, runtime.startup_tasks = runtime.startup_tasks, []
+            if startup_tasks:
+                await asyncio.gather(*startup_tasks)
+            await _async_sync_yaml_entries(hass, yaml_config)
+
+        hass.bus.async_fire(EVENT_YAML_RELOADED, context=call.context)
+
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_RELOAD, async_reload_yaml, schema={}
+    )
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Signal Conditioner from a config entry."""
-    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Signal Conditioner config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove any lingering Repairs issue for an entry that was deleted."""
+    async_delete_issue(hass, DOMAIN, source_issue_id(entry.entry_id))
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

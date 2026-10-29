@@ -140,5 +140,15 @@
         "clamp": "Clamp to the limit"
       }
     }
+  },
+  "issues": {
+    "missing_source": {
+      "title": "Signal Conditioner source entity is missing",
+      "description": "**{conditioner}** references **{source}**, but that entity is not present in Home Assistant or its entity registry. Check for a renamed or removed entity, then update the Signal Conditioner source in the integration configuration or YAML and reload it. The issue clears automatically when the reference is valid."
+    },
+    "disabled_source": {
+      "title": "Signal Conditioner source entity is disabled",
+      "description": "**{conditioner}** references **{source}**, but that entity is disabled in Home Assistant. Enable the source entity or choose a different source in the Signal Conditioner configuration or YAML. The issue clears automatically when the reference is valid."
+    }
   }
 }

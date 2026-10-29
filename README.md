@@ -108,6 +108,26 @@ availability:
   value from before the restart (unless `follow_source` is on and the source is
   unavailable). `stale_after` applies to that restored value too.
 
+### Missing-source diagnostics and Repairs
+
+Signal Conditioner monitors the configured source entity and raises an actionable
+**Settings → System → Repairs** issue only for a persistent configuration problem:
+
+- **Missing source:** the entity ID is absent from both Home Assistant's current
+  states and its entity registry.
+- **Disabled source:** the source is disabled in the entity registry.
+
+The check waits until Home Assistant has finished starting, then allows a
+**30-second grace period** before raising a new issue. The same grace period
+applies after a source is removed or its registry entry changes. An entity that
+is registered but temporarily unloaded, or whose state is `unknown` or
+`unavailable`, **does not** trigger a Repairs issue. Those are runtime conditions
+handled by the existing `availability` options.
+
+Repair issues identify the conditioner and source, describe the action needed,
+and clear automatically when the reference is corrected or the conditioner is
+unloaded, reconfigured, or deleted. No additional YAML settings are needed.
+
 ### Rounding
 
 - Decimal places; an empty `rounding` block defaults to `precision: 2`
@@ -142,10 +162,17 @@ signal_conditioner:
 YAML and the config flow expose the same behavior set.
 
 YAML is the source of truth for the entries it creates. Each key is imported as
-a config entry on startup; changing a key's settings replaces the entry's settings
-(a block deleted from the YAML is removed from the entry), and deleting or
-renaming a key removes its entry and entity. Entries created in the UI are never
-touched. If the YAML fails validation, nothing is imported or removed.
+a config entry on startup. To apply YAML edits without restarting Home Assistant,
+use **Developer Tools → Actions → Signal Conditioner: Reload**
+(`signal_conditioner.reload`). New YAML keys create sensors; changed keys replace
+their entire configuration (including removing omitted pipeline stages); deleted or
+renamed keys remove the old YAML-owned entry and entity.
+
+Only YAML-imported entries are reconciled. UI-created entries are never modified,
+even if a YAML key collides with a UI entry's unique ID (the collision is logged).
+The YAML is validated before a reload changes any entries. Failed validation
+preserves the existing configuration; an event named
+`event_signal_conditioner_reloaded` is fired after a successful reload.
 
 ## Installation
 
