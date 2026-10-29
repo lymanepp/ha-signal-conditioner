@@ -7,6 +7,7 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_SOURCE,
     STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -149,7 +150,9 @@ async def test_hide_source_is_reversed_on_unload(hass: HomeAssistant) -> None:
     assert registry.async_get("sensor.raw_hidden").hidden_by is None
 
 
-async def test_late_created_source_is_hidden_when_requested(hass: HomeAssistant) -> None:
+async def test_late_created_source_is_hidden_when_requested(
+    hass: HomeAssistant,
+) -> None:
     """Resolve late startup dependencies rather than leaving a source visible."""
     entry = ConfigEntry(
         version=1,
@@ -192,8 +195,6 @@ async def test_unknown_source_does_not_restore_previous_value(
     hass: HomeAssistant,
 ) -> None:
     """An existing unknown source must be honored when follow_source is on."""
-    from homeassistant.const import STATE_UNKNOWN
-
     hass.states.async_set("sensor.unknown_raw", STATE_UNKNOWN)
     entry = ConfigEntry(
         version=1,

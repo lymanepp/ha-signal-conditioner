@@ -9,7 +9,7 @@ from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.signal_conditioner import EVENT_YAML_RELOADED
+from custom_components.signal_conditioner import EVENT_YAML_RELOADED, vol
 from custom_components.signal_conditioner.const import DOMAIN
 
 
@@ -85,21 +85,23 @@ async def test_reload_invalid_yaml_preserves_entries_and_fires_no_event(
     reload_events: list[object] = []
     hass.bus.async_listen(EVENT_YAML_RELOADED, reload_events.append)
 
-    with patch(
-        "custom_components.signal_conditioner.reload_helper."
-        "async_integration_yaml_config",
-        new_callable=AsyncMock,
-        return_value={
-            DOMAIN: {
-                "bad": {
-                    CONF_SOURCE: "sensor.raw",
-                    "window": {"duration": -10},
+    with (
+        patch(
+            "custom_components.signal_conditioner.reload_helper."
+            "async_integration_yaml_config",
+            new_callable=AsyncMock,
+            return_value={
+                DOMAIN: {
+                    "bad": {
+                        CONF_SOURCE: "sensor.raw",
+                        "window": {"duration": -10},
+                    }
                 }
-            }
-        },
+            },
+        ),
+        pytest.raises(vol.Invalid),
     ):
-        with pytest.raises(Exception):
-            await hass.services.async_call(DOMAIN, "reload", {}, blocking=True)
+        await hass.services.async_call(DOMAIN, "reload", {}, blocking=True)
 
     remaining = {e.unique_id for e in hass.config_entries.async_entries(DOMAIN)}
     assert remaining == {"current"}
@@ -141,7 +143,7 @@ async def test_reload_unchanged_yaml_does_not_update_entries(
     with (
         patch(
             "custom_components.signal_conditioner.reload_helper."
-        "async_integration_yaml_config",
+            "async_integration_yaml_config",
             new_callable=AsyncMock,
             return_value=yaml,
         ),
