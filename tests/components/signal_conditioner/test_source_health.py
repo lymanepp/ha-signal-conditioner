@@ -61,6 +61,9 @@ async def _finish_startup(hass: HomeAssistant) -> None:
 async def test_missing_source_waits_for_startup_and_grace(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
+    # The pytest Home Assistant fixture is already RUNNING. Explicitly simulate
+    # startup so the monitor defers checks until EVENT_HOMEASSISTANT_STARTED.
+    hass.set_state(CoreState.starting)
     entry = await _setup(hass)
     await _tick(hass, freezer, 60)
     assert _issue(hass, entry) is None  # No issue before Home Assistant starts.
