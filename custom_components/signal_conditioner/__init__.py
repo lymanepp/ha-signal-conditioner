@@ -238,7 +238,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         hass.bus.async_fire(EVENT_YAML_RELOADED, context=call.context)
 
     async_register_admin_service(
-        hass, DOMAIN, SERVICE_RELOAD, async_reload_yaml, schema={}
+        hass, DOMAIN, SERVICE_RELOAD, async_reload_yaml, schema=vol.Schema({})
     )
     return True
 
