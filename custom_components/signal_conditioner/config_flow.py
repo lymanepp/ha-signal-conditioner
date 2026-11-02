@@ -375,8 +375,13 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if self._reconfigure_entry is None:
-            self._reconfigure_entry = self._get_reconfigure_entry()
-            self._defaults = self._reconfigure_entry.data
+            entry = self._get_reconfigure_entry()
+            if entry.source == SOURCE_IMPORT:
+                # YAML owns this entry; a UI edit would be overwritten on the
+                # next reload or restart.
+                return self.async_abort(reason="yaml_managed")
+            self._reconfigure_entry = entry
+            self._defaults = entry.data
         return await self._async_source("reconfigure", user_input)
 
     async def async_step_value_limits(

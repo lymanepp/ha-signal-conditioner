@@ -20,9 +20,13 @@ from homeassistant.const import (
     CONF_UNIT_OF_MEASUREMENT,
     SERVICE_RELOAD,
 )
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv, reload as reload_helper
-from homeassistant.helpers.issue_registry import async_delete_issue
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    async_delete_issue,
+)
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
@@ -168,9 +172,72 @@ SIGNAL_CONDITIONER_SCHEMA = vol.All(
     _validate_signal_conditioner,
 )
 
-CONFIG_SCHEMA = vol.Schema(
+# Strict schema for the whole YAML block, used to validate each key.
+YAML_CONFIG_SCHEMA = vol.Schema(
     {DOMAIN: vol.Schema({cv.slug: SIGNAL_CONDITIONER_SCHEMA})}, extra=vol.ALLOW_EXTRA
 )
+
+# What Home Assistant validates before async_setup. Deliberately lenient: a
+# failure here would block the whole integration, UI-created entries included.
+# Each YAML key is validated on its own in _validate_yaml instead.
+CONFIG_SCHEMA = vol.Schema({vol.Optional(DOMAIN): object}, extra=vol.ALLOW_EXTRA)
+
+_INVALID_YAML_ISSUE_ID = "invalid_yaml"
+
+
+@dataclass(slots=True)
+class ValidatedYaml:
+    """Per-key YAML validation result."""
+
+    valid: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Key -> error. None as the key means the whole block is unusable.
+    invalid: dict[str | None, str] = field(default_factory=dict)
+
+
+def _validate_yaml(raw: object) -> ValidatedYaml:
+    """Validate each YAML key on its own, so one mistake cannot hide the rest."""
+    result = ValidatedYaml()
+    if raw is None:
+        return result
+    if not isinstance(raw, Mapping):
+        result.invalid[None] = f"expected a mapping of keys, got {type(raw).__name__}"
+        return result
+    for key, value in raw.items():
+        try:
+            object_id = cv.slug(key)
+            result.valid[object_id] = SIGNAL_CONDITIONER_SCHEMA(value)
+        except vol.Invalid as err:
+            result.invalid[str(key)] = str(err)
+    return result
+
+
+@callback
+def _async_report_invalid_yaml(hass: HomeAssistant, yaml: ValidatedYaml) -> None:
+    """Log invalid YAML keys and show them in Repairs; clear when all valid."""
+    if not yaml.invalid:
+        async_delete_issue(hass, DOMAIN, _INVALID_YAML_ISSUE_ID)
+        return
+    for key, error in yaml.invalid.items():
+        _LOGGER.error(
+            "Invalid Signal Conditioner YAML %s: %s. Its existing sensor, if "
+            "any, keeps its previous configuration",
+            f"key '{key}'" if key is not None else "configuration",
+            error,
+        )
+    async_create_issue(
+        hass,
+        DOMAIN,
+        _INVALID_YAML_ISSUE_ID,
+        is_fixable=False,
+        is_persistent=False,
+        severity=IssueSeverity.ERROR,
+        translation_key=_INVALID_YAML_ISSUE_ID,
+        translation_placeholders={
+            "keys": ", ".join(
+                key if key is not None else DOMAIN for key in yaml.invalid
+            )
+        },
+    )
 
 
 def _yaml_entry_data(yaml_config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -184,16 +251,24 @@ def _yaml_entry_data(yaml_config: Mapping[str, Any]) -> dict[str, dict[str, Any]
     return prepared
 
 
-async def _async_sync_yaml_entries(
-    hass: HomeAssistant, yaml_config: Mapping[str, Any]
-) -> None:
-    """Reconcile YAML-owned entries without touching UI-owned entries."""
-    prepared = _yaml_entry_data(yaml_config)
+async def _async_sync_yaml_entries(hass: HomeAssistant, yaml: ValidatedYaml) -> None:
+    """Reconcile YAML-owned entries without touching UI-owned entries.
+
+    Entries of invalid keys are left as they are: an invalid key is not a
+    removed key, and removing it would delete the sensor and its history.
+    """
+    if None in yaml.invalid:
+        return  # The whole block is unusable: change nothing.
+    prepared = _yaml_entry_data(yaml.valid)
 
     # Remove old entries first, so renaming a YAML key does not temporarily
     # create two entities (or two owners of the same hidden source).
     for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.source == SOURCE_IMPORT and entry.unique_id not in prepared:
+        if (
+            entry.source == SOURCE_IMPORT
+            and entry.unique_id not in prepared
+            and entry.unique_id not in yaml.invalid
+        ):
             _LOGGER.info(
                 "Removing Signal Conditioner '%s': its YAML key was removed",
                 entry.unique_id,
@@ -216,8 +291,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Do not await config-entry imports in the integration's initial setup:
     # a created entry may need to finish setting up this same integration.
     # The reload action awaits these startup operations before reconciling.
+    yaml = _validate_yaml(config.get(DOMAIN))
+    _async_report_invalid_yaml(hass, yaml)
     runtime.startup_tasks.append(
-        hass.async_create_task(_async_sync_yaml_entries(hass, config.get(DOMAIN, {})))
+        hass.async_create_task(_async_sync_yaml_entries(hass, yaml))
     )
 
     async def async_reload_yaml(call: ServiceCall) -> None:
@@ -226,15 +303,23 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             reloaded_config = await reload_helper.async_integration_yaml_config(
                 hass, DOMAIN, raise_on_failure=True
             )
-            # Validate everything before adding, changing, or removing entries.
-            yaml_config = CONFIG_SCHEMA({DOMAIN: reloaded_config.get(DOMAIN, {})})[
-                DOMAIN
-            ]
+            # Validate everything before adding, changing, or removing
+            # entries: a reload is all-or-nothing, and reports what failed.
+            yaml = _validate_yaml(reloaded_config.get(DOMAIN))
+            _async_report_invalid_yaml(hass, yaml)
+            if yaml.invalid:
+                raise vol.Invalid(
+                    "Invalid Signal Conditioner YAML, nothing was changed: "
+                    + "; ".join(
+                        f"{key if key is not None else DOMAIN}: {error}"
+                        for key, error in yaml.invalid.items()
+                    )
+                )
 
             startup_tasks, runtime.startup_tasks = runtime.startup_tasks, []
             if startup_tasks:
                 await asyncio.gather(*startup_tasks)
-            await _async_sync_yaml_entries(hass, yaml_config)
+            await _async_sync_yaml_entries(hass, yaml)
 
         hass.bus.async_fire(EVENT_YAML_RELOADED, context=call.context)
 

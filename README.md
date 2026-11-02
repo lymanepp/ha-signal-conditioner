@@ -181,6 +181,16 @@ The YAML is validated before a reload changes any entries. Failed validation
 preserves the existing configuration; an event named
 `event_signal_conditioner_reloaded` is fired after a successful reload.
 
+Each YAML key is validated on its own. At startup, an invalid key is skipped
+and logged, and a Repairs issue lists it; its existing sensor, if any, keeps its
+previous configuration, and every other conditioner (YAML or UI) loads
+normally. A reload with any invalid key changes nothing and reports the error.
+The Repairs issue clears once the YAML is valid.
+
+YAML conditioners can't be reconfigured in the UI; edit the YAML instead.
+Deleting one in the UI only lasts until the next reload or restart re-imports
+it, so remove its YAML key to delete it for good.
+
 ## Installation
 
 Install as a custom HACS repository or copy `custom_components/signal_conditioner` into the

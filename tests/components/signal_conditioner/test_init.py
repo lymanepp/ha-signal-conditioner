@@ -4,7 +4,7 @@ from homeassistant.const import CONF_SOURCE
 import pytest
 import voluptuous as vol
 
-from custom_components.signal_conditioner import CONFIG_SCHEMA
+from custom_components.signal_conditioner import YAML_CONFIG_SCHEMA
 from custom_components.signal_conditioner.const import (
     CONF_CALIBRATION,
     CONF_DATA_POINTS,
@@ -25,7 +25,7 @@ from custom_components.signal_conditioner.const import (
 
 def test_yaml_mean_window_keeps_canonical_shape() -> None:
     """Mean window uses one duration and one publication boundary."""
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {
             DOMAIN: {
                 "garage_humidity": {
@@ -45,7 +45,7 @@ def test_yaml_mean_window_keeps_canonical_shape() -> None:
 
 def test_yaml_latest_window_has_identical_shape() -> None:
     """Throttle-only behavior differs solely by selected output value."""
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {
             DOMAIN: {
                 "garage_humidity": {
@@ -67,7 +67,7 @@ def test_yaml_latest_window_has_identical_shape() -> None:
 def test_unsupported_window_outputs_are_rejected(output: str) -> None:
     """The production-focused schema exposes only mean and latest."""
     with pytest.raises(vol.Invalid):
-        CONFIG_SCHEMA(
+        YAML_CONFIG_SCHEMA(
             {
                 DOMAIN: {
                     "garage_humidity": {
@@ -81,7 +81,9 @@ def test_unsupported_window_outputs_are_rejected(output: str) -> None:
 
 def test_all_optional_sections_can_be_omitted() -> None:
     """A source-only configuration is a sane numeric pass-through."""
-    validated = CONFIG_SCHEMA({DOMAIN: {"plain": {CONF_SOURCE: "sensor.plain_raw"}}})
+    validated = YAML_CONFIG_SCHEMA(
+        {DOMAIN: {"plain": {CONF_SOURCE: "sensor.plain_raw"}}}
+    )
     data = validated[DOMAIN]["plain"]
     assert data[CONF_SOURCE] == "sensor.plain_raw"
     assert CONF_VALUE_LIMITS not in data
@@ -92,7 +94,7 @@ def test_all_optional_sections_can_be_omitted() -> None:
 
 def test_empty_value_limits_is_a_noop() -> None:
     """An empty limits block performs no filtering (mode defaults to reject)."""
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {DOMAIN: {"plain": {CONF_SOURCE: "sensor.plain_raw", CONF_VALUE_LIMITS: {}}}}
     )
     data = validated[DOMAIN]["plain"]
@@ -110,7 +112,7 @@ def test_each_value_limit_is_independently_optional(
     limits: dict[str, float], present: str, absent: str
 ) -> None:
     """Minimum and maximum do not require one another."""
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {DOMAIN: {"limited": {CONF_SOURCE: "sensor.raw", CONF_VALUE_LIMITS: limits}}}
     )
     data = validated[DOMAIN]["limited"]
@@ -121,14 +123,14 @@ def test_each_value_limit_is_independently_optional(
 def test_calibration_requires_data_points() -> None:
     """A calibration section is invalid without calibration points."""
     with pytest.raises(vol.Invalid):
-        CONFIG_SCHEMA(
+        YAML_CONFIG_SCHEMA(
             {DOMAIN: {"calibrated": {CONF_SOURCE: "sensor.raw", CONF_CALIBRATION: {}}}}
         )
 
 
 def test_calibration_degree_defaults_to_one() -> None:
     """Omitted calibration degree means an ordinary linear fit."""
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {
             DOMAIN: {
                 "calibrated": {
@@ -143,7 +145,7 @@ def test_calibration_degree_defaults_to_one() -> None:
 
 def test_window_output_defaults_to_mean() -> None:
     """A window with no output mode publishes its arithmetic mean."""
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {
             DOMAIN: {
                 "windowed": {
@@ -159,14 +161,14 @@ def test_window_output_defaults_to_mean() -> None:
 def test_window_still_requires_duration() -> None:
     """A configured window needs a meaningful time boundary."""
     with pytest.raises(vol.Invalid):
-        CONFIG_SCHEMA(
+        YAML_CONFIG_SCHEMA(
             {DOMAIN: {"windowed": {CONF_SOURCE: "sensor.raw", CONF_WINDOW: {}}}}
         )
 
 
 def test_empty_rounding_defaults_to_two_places() -> None:
     """An enabled empty rounding block has a deterministic useful default."""
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {DOMAIN: {"rounded": {CONF_SOURCE: "sensor.raw", CONF_ROUNDING: {}}}}
     )
     assert validated[DOMAIN]["rounded"][CONF_ROUNDING][CONF_PRECISION] == 2

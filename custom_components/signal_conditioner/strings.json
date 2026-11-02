@@ -124,6 +124,7 @@
     "abort": {
       "already_configured": "This Signal Conditioner helper is already configured.",
       "invalid_import": "The YAML conditioning configuration is invalid.",
+      "yaml_managed": "This Signal Conditioner is defined in YAML. Edit its YAML key, then reload Signal Conditioner (`signal_conditioner.reload`) or restart Home Assistant.",
       "reconfigure_successful": "The Signal Conditioner helper was reconfigured successfully."
     }
   },
@@ -142,6 +143,10 @@
     }
   },
   "issues": {
+    "invalid_yaml": {
+      "title": "Signal Conditioner YAML has invalid entries",
+      "description": "These Signal Conditioner YAML keys are invalid: **{keys}**. They were skipped; a sensor that already existed for one of them keeps its previous configuration, and all other conditioners load normally. The Home Assistant log has the details. Fix the YAML, then reload Signal Conditioner or restart. The issue clears automatically once the YAML is valid."
+    },
     "missing_source": {
       "title": "Signal Conditioner source entity is missing",
       "description": "**{conditioner}** references **{source}**, but that entity is not present in Home Assistant or its entity registry. Check for a renamed or removed entity, then update the Signal Conditioner source in the integration configuration or YAML and reload it. The issue clears automatically when the reference is valid."
