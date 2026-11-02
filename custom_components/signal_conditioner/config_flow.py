@@ -45,14 +45,7 @@ from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
 )
-
-try:
-    # Home Assistant replaced voluptuous with probatio, an API-compatible
-    # drop-in (2026.10 depends on probatio; 2026.8 and earlier, including the
-    # 2026.7.2 minimum in hacs.json, only on voluptuous).
-    import probatio as vol
-except ImportError:
-    import voluptuous as vol  # type: ignore[no-redef]
+import probatio as vol
 
 from .calibration import (
     CalibrationError,

@@ -18,8 +18,6 @@ from homeassistant.const import (
     CONF_SOURCE,
     CONF_UNIQUE_ID,
     CONF_UNIT_OF_MEASUREMENT,
-    MAJOR_VERSION,
-    MINOR_VERSION,
     SERVICE_RELOAD,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -37,14 +35,7 @@ from homeassistant.helpers.issue_registry import (
 )
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
-
-try:
-    # Home Assistant replaced voluptuous with probatio, an API-compatible
-    # drop-in (2026.10 depends on probatio; 2026.8 and earlier, including the
-    # 2026.7.2 minimum in hacs.json, only on voluptuous).
-    import probatio as vol
-except ImportError:
-    import voluptuous as vol  # type: ignore[no-redef]
+import probatio as vol
 
 from .config import pipeline_config_from_data
 from .const import (
@@ -84,15 +75,6 @@ _LOGGER = logging.getLogger(__name__)
 
 EVENT_YAML_RELOADED = f"event_{DOMAIN}_reloaded"
 _YAML_RUNTIME = "yaml_runtime"
-
-# Before 2026.8, async_handle_source_entity_changes defaults to adding the
-# helper's config entry to the source device; HA's own helpers opt out. From
-# 2026.8 the option has no effect and passing it logs a deprecation.
-_SOURCE_CHANGES_KWARGS: dict[str, Any] = (
-    {"add_helper_config_entry_to_device": False}
-    if (MAJOR_VERSION, MINOR_VERSION) < (2026, 8)
-    else {}
-)
 
 
 @dataclass(slots=True)
@@ -366,7 +348,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     hass, entry.data[CONF_SOURCE]
                 ),
                 source_entity_id_or_uuid=entry.data[CONF_SOURCE],
-                **_SOURCE_CHANGES_KWARGS,
             )
         )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
