@@ -45,14 +45,7 @@ from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
 )
-
-try:
-    # Home Assistant replaced voluptuous with probatio, an API-compatible
-    # drop-in (2026.10 depends on probatio; 2026.8 and earlier, including the
-    # 2026.7.2 minimum in hacs.json, only on voluptuous).
-    import probatio as vol
-except ImportError:
-    import voluptuous as vol  # type: ignore[no-redef]
+import probatio as vol
 
 from .calibration import (
     CalibrationError,
@@ -129,12 +122,6 @@ def _suggested_optional(key: str, defaults: Mapping[str, Any]) -> vol.Optional:
     if key in defaults and defaults[key] is not None:
         return vol.Optional(key, description={"suggested_value": defaults[key]})
     return vol.Optional(key)
-
-
-def _source_unique_id(data: Mapping[str, Any]) -> str:
-    source = str(data[CONF_SOURCE])
-    attribute = str(data.get(CONF_ATTRIBUTE, "")).strip()
-    return f"{source}::{attribute}" if attribute else source
 
 
 def _source_schema(
@@ -357,7 +344,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
     """Configure a conditioned sensor."""
 
     VERSION = 1
-    MINOR_VERSION = 0
+    MINOR_VERSION = 1
 
     def __init__(self) -> None:
         self._flow_data: dict[str, Any] = {}
@@ -605,6 +592,5 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_update_reload_and_abort(
                 self._reconfigure_entry, title=data[CONF_NAME], data=data
             )
-        await self.async_set_unique_id(_source_unique_id(data))
-        self._abort_if_unique_id_configured()
+        # No unique ID: one source may have several conditioners.
         return self.async_create_entry(title=data[CONF_NAME], data=data)

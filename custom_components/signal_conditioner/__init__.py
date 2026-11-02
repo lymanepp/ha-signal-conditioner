@@ -21,7 +21,13 @@ from homeassistant.const import (
     SERVICE_RELOAD,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.helpers import config_validation as cv, reload as reload_helper
+from homeassistant.helpers import (
+    config_validation as cv,
+    entity_registry as er,
+    reload as reload_helper,
+)
+from homeassistant.helpers.device import async_entity_id_to_device_id
+from homeassistant.helpers.helper_integration import async_handle_source_entity_changes
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -29,14 +35,7 @@ from homeassistant.helpers.issue_registry import (
 )
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
-
-try:
-    # Home Assistant replaced voluptuous with probatio, an API-compatible
-    # drop-in (2026.10 depends on probatio; 2026.8 and earlier, including the
-    # 2026.7.2 minimum in hacs.json, only on voluptuous).
-    import probatio as vol
-except ImportError:
-    import voluptuous as vol  # type: ignore[no-redef]
+import probatio as vol
 
 from .config import pipeline_config_from_data
 from .const import (
@@ -331,7 +330,56 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Signal Conditioner from a config entry."""
+    if entry.source != SOURCE_IMPORT:
+        # Follow source renames and device moves. YAML entries can't: the
+        # next import would put the old entity ID back.
+        def set_source_entity_id(source_entity_id: str) -> None:
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, CONF_SOURCE: source_entity_id}
+            )
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+
+        entry.async_on_unload(
+            async_handle_source_entity_changes(
+                hass,
+                helper_config_entry_id=entry.entry_id,
+                set_source_entity_id_or_uuid=set_source_entity_id,
+                source_device_id=async_entity_id_to_device_id(
+                    hass, entry.data[CONF_SOURCE]
+                ),
+                source_entity_id_or_uuid=entry.data[CONF_SOURCE],
+            )
+        )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate an entry to the current config entry version."""
+    if entry.version > 1:
+        return False  # Downgraded from a future version.
+
+    if entry.minor_version < 1:
+        # 1.1: UI entries no longer use the source entity ID as unique ID, so
+        # one source can have several conditioners. Keep the entity, its
+        # entity ID, and its history by moving it to the entry-ID based
+        # unique ID that the sensor derives when the entry has none.
+        if entry.source != SOURCE_IMPORT and entry.unique_id is not None:
+            old_unique_id = f"{DOMAIN}.{entry.unique_id}"
+            new_unique_id = f"{DOMAIN}.{entry.entry_id}"
+
+            @callback
+            def migrate_unique_id(
+                entity_entry: er.RegistryEntry,
+            ) -> dict[str, Any] | None:
+                if entity_entry.unique_id == old_unique_id:
+                    return {"new_unique_id": new_unique_id}
+                return None
+
+            await er.async_migrate_entries(hass, entry.entry_id, migrate_unique_id)
+            hass.config_entries.async_update_entry(entry, unique_id=None)
+        hass.config_entries.async_update_entry(entry, minor_version=1)
+
     return True
 
 

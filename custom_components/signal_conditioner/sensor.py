@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_ICON,
@@ -35,6 +35,7 @@ from homeassistant.core import (
     State,
     callback,
 )
+from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_call_later,
@@ -96,6 +97,9 @@ class SignalConditionerSensor(RestoreSensor):
         )
 
         self._attr_unique_id = f"signal_conditioner.{entry.unique_id or entry.entry_id}"
+        if entry.source != SOURCE_IMPORT:
+            # Show the conditioner on its source's device page.
+            self.device_entry = async_entity_id_to_device(hass, self._source_entity_id)
         self._attr_name = config[CONF_NAME]
         self._attr_native_unit_of_measurement = config.get(CONF_UNIT_OF_MEASUREMENT)
         self._attr_device_class = cast(

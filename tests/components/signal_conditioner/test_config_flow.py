@@ -190,7 +190,7 @@ async def test_same_name_different_sources_do_not_collide(hass: HomeAssistant) -
             },
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
-        assert result["result"].unique_id == entity_id
+        assert result["result"].unique_id is None
 
 
 async def test_attribute_and_hide_source_are_incompatible(hass: HomeAssistant) -> None:
@@ -225,7 +225,7 @@ async def test_reconfigure_keeps_source_identity(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.original", "5")
     entry = ConfigEntry(
         version=1,
-        minor_version=0,
+        minor_version=1,
         domain=DOMAIN,
         title="Original",
         data={

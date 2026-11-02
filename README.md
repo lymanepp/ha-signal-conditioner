@@ -43,6 +43,13 @@ attribute-based sources inherit none of the parent entity metadata unless an
 override is configured. The same fields are available when reconfiguring an
 existing Signal Conditioner sensor, and clearing a field removes that override.
 
+A source can have any number of conditioners (for example a 1-minute mean and
+a 1-hour mean of the same sensor). A UI-created conditioner is shown on its
+source's device page and follows the source when its entity ID is renamed or it
+moves to another device. YAML conditioners keep the entity ID written in YAML;
+after renaming their source, update the YAML (a Repairs issue reports the
+missing source).
+
 `hide_source` hides the source entity in the entity registry (not available with
 a source attribute). The source stays hidden across restarts and reloads, and is
 unhidden when the conditioner is deleted or disabled, when `hide_source` is
