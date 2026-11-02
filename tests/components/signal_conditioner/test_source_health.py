@@ -190,6 +190,7 @@ async def test_reconfigure_clears_old_source_issue(
         entry,
         data={CONF_NAME: "Conditioned reference", CONF_SOURCE: "sensor.healthy_raw"},
     )
+    assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert _issue(hass, entry) is None
 
