@@ -131,12 +131,6 @@ def _suggested_optional(key: str, defaults: Mapping[str, Any]) -> vol.Optional:
     return vol.Optional(key)
 
 
-def _source_unique_id(data: Mapping[str, Any]) -> str:
-    source = str(data[CONF_SOURCE])
-    attribute = str(data.get(CONF_ATTRIBUTE, "")).strip()
-    return f"{source}::{attribute}" if attribute else source
-
-
 def _source_schema(
     defaults: Mapping[str, Any], *, reconfigure: bool = False
 ) -> vol.Schema:
@@ -357,7 +351,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
     """Configure a conditioned sensor."""
 
     VERSION = 1
-    MINOR_VERSION = 0
+    MINOR_VERSION = 1
 
     def __init__(self) -> None:
         self._flow_data: dict[str, Any] = {}
@@ -605,6 +599,5 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_update_reload_and_abort(
                 self._reconfigure_entry, title=data[CONF_NAME], data=data
             )
-        await self.async_set_unique_id(_source_unique_id(data))
-        self._abort_if_unique_id_configured()
+        # No unique ID: one source may have several conditioners.
         return self.async_create_entry(title=data[CONF_NAME], data=data)

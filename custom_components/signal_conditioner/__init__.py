@@ -18,10 +18,18 @@ from homeassistant.const import (
     CONF_SOURCE,
     CONF_UNIQUE_ID,
     CONF_UNIT_OF_MEASUREMENT,
+    MAJOR_VERSION,
+    MINOR_VERSION,
     SERVICE_RELOAD,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.helpers import config_validation as cv, reload as reload_helper
+from homeassistant.helpers import (
+    config_validation as cv,
+    entity_registry as er,
+    reload as reload_helper,
+)
+from homeassistant.helpers.device import async_entity_id_to_device_id
+from homeassistant.helpers.helper_integration import async_handle_source_entity_changes
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -76,6 +84,15 @@ _LOGGER = logging.getLogger(__name__)
 
 EVENT_YAML_RELOADED = f"event_{DOMAIN}_reloaded"
 _YAML_RUNTIME = "yaml_runtime"
+
+# Before 2026.8, async_handle_source_entity_changes defaults to adding the
+# helper's config entry to the source device; HA's own helpers opt out. From
+# 2026.8 the option has no effect and passing it logs a deprecation.
+_SOURCE_CHANGES_KWARGS: dict[str, Any] = (
+    {"add_helper_config_entry_to_device": False}
+    if (MAJOR_VERSION, MINOR_VERSION) < (2026, 8)
+    else {}
+)
 
 
 @dataclass(slots=True)
@@ -331,7 +348,57 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Signal Conditioner from a config entry."""
+    if entry.source != SOURCE_IMPORT:
+        # Follow source renames and device moves. YAML entries can't: the
+        # next import would put the old entity ID back.
+        def set_source_entity_id(source_entity_id: str) -> None:
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, CONF_SOURCE: source_entity_id}
+            )
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+
+        entry.async_on_unload(
+            async_handle_source_entity_changes(
+                hass,
+                helper_config_entry_id=entry.entry_id,
+                set_source_entity_id_or_uuid=set_source_entity_id,
+                source_device_id=async_entity_id_to_device_id(
+                    hass, entry.data[CONF_SOURCE]
+                ),
+                source_entity_id_or_uuid=entry.data[CONF_SOURCE],
+                **_SOURCE_CHANGES_KWARGS,
+            )
+        )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate an entry to the current config entry version."""
+    if entry.version > 1:
+        return False  # Downgraded from a future version.
+
+    if entry.minor_version < 1:
+        # 1.1: UI entries no longer use the source entity ID as unique ID, so
+        # one source can have several conditioners. Keep the entity, its
+        # entity ID, and its history by moving it to the entry-ID based
+        # unique ID that the sensor derives when the entry has none.
+        if entry.source != SOURCE_IMPORT and entry.unique_id is not None:
+            old_unique_id = f"{DOMAIN}.{entry.unique_id}"
+            new_unique_id = f"{DOMAIN}.{entry.entry_id}"
+
+            @callback
+            def migrate_unique_id(
+                entity_entry: er.RegistryEntry,
+            ) -> dict[str, Any] | None:
+                if entity_entry.unique_id == old_unique_id:
+                    return {"new_unique_id": new_unique_id}
+                return None
+
+            await er.async_migrate_entries(hass, entry.entry_id, migrate_unique_id)
+            hass.config_entries.async_update_entry(entry, unique_id=None)
+        hass.config_entries.async_update_entry(entry, minor_version=1)
+
     return True
 
 
