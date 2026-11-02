@@ -156,3 +156,44 @@ async def test_reload_unchanged_yaml_does_not_update_entries(
         await hass.services.async_call(DOMAIN, "reload", {}, blocking=True)
     await hass.async_block_till_done()
     assert not update.called
+
+
+async def test_reload_applies_changed_yaml_to_a_loaded_entry(
+    hass: HomeAssistant,
+) -> None:
+    """A changed YAML key reloads its loaded entry once, so the change applies."""
+    hass.states.async_set("sensor.raw", "5")
+    assert await async_setup_component(
+        hass, DOMAIN, {DOMAIN: {"garage": {CONF_SOURCE: "sensor.raw"}}}
+    )
+    await hass.async_block_till_done()
+    (entry,) = hass.config_entries.async_entries(DOMAIN)
+    assert entry.update_listeners == []
+    assert hass.states.get("sensor.garage").state == "5.0"
+
+    yaml = {
+        DOMAIN: {
+            "garage": {
+                CONF_SOURCE: "sensor.raw",
+                "value_limits": {"maximum": 3, "mode": "clamp"},
+            }
+        }
+    }
+    with (
+        patch(
+            "custom_components.signal_conditioner.reload_helper."
+            "async_integration_yaml_config",
+            new_callable=AsyncMock,
+            return_value=yaml,
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_reload",
+            wraps=hass.config_entries.async_reload,
+        ) as reload,
+    ):
+        await hass.services.async_call(DOMAIN, "reload", {}, blocking=True)
+        await hass.async_block_till_done()
+
+    assert reload.call_count == 1
+    assert hass.states.get("sensor.garage").state == "3.0"

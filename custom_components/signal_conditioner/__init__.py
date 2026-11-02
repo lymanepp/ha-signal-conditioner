@@ -247,7 +247,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Signal Conditioner from a config entry."""
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     return True
 
 
@@ -265,8 +264,3 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Clean up the Repairs issue and source hiding of a deleted entry."""
     async_delete_issue(hass, DOMAIN, source_issue_id(entry.entry_id))
     async_release_entry_source(hass, entry)
-
-
-async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload Signal Conditioner when its config entry changes."""
-    await hass.config_entries.async_reload(entry.entry_id)
