@@ -97,8 +97,11 @@ class ConditioningPipeline:
         self._area = 0.0
         self._covered = 0.0
 
-    def process(self, source_value: object, timestamp: float = 0.0) -> PipelineResult:  # noqa: PLR0911
-        """Validate and condition one source reading received at ``timestamp``."""
+    def condition(self, source_value: object) -> PipelineResult:
+        """Validate, limit, and calibrate one reading without holding it.
+
+        Returns PUBLISH with the conditioned value, or REJECT with a reason.
+        """
         try:
             raw_value = float(source_value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
@@ -125,17 +128,19 @@ class ConditioningPipeline:
                 conditioned = self.config.calibration.evaluate(conditioned)
             except CalibrationError as err:
                 return PipelineResult(Disposition.REJECT, reason=str(err))
+        return PipelineResult(Disposition.PUBLISH, value=conditioned)
 
+    def process(self, source_value: object, timestamp: float = 0.0) -> PipelineResult:
+        """Condition one source reading received at ``timestamp``."""
+        result = self.condition(source_value)
+        if result.disposition is Disposition.REJECT:
+            return result
+        assert result.value is not None
         if self.config.window_duration <= 0:
-            return PipelineResult(Disposition.PUBLISH, value=self._round(conditioned))
+            return PipelineResult(Disposition.PUBLISH, value=self._round(result.value))
 
-        self._hold(conditioned, timestamp)
-        return PipelineResult(Disposition.HOLD, value=self._round(conditioned))
-
-    def seed(self, value: float, timestamp: float) -> None:
-        """Put an already-conditioned value (e.g. restored state) in force."""
-        if self.config.window_duration > 0 and math.isfinite(value):
-            self._hold(value, timestamp)
+        self._hold(result.value, timestamp)
+        return PipelineResult(Disposition.HOLD, value=self._round(result.value))
 
     def flush(self, timestamp: float = 0.0) -> PipelineResult:
         """Close the interval ending at ``timestamp`` and publish its value.

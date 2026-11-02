@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
+import math
+import time
 from typing import Any, cast
 
 from homeassistant.components.sensor import (
@@ -40,14 +42,14 @@ from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_call_later,
+    async_track_point_in_utc_time,
     async_track_state_change_event,
     async_track_state_report_event,
-    async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util
 
 from .config import availability_from_data, pipeline_config_from_data
-from .const import CONF_HIDE_SOURCE, CONF_STATE_CLASS
+from .const import CONF_HIDE_SOURCE, CONF_PRECISION, CONF_ROUNDING, CONF_STATE_CLASS
 from .pipeline import ConditioningPipeline, Disposition
 from .source_health import SourceReferenceMonitor
 from .source_hiding import async_hide_source
@@ -77,7 +79,11 @@ class SignalConditionerSensor(RestoreSensor):
       value is kept, like the original Calibration integration.
     * With ``stale_after`` the sensor becomes unavailable when the source has
       not reported (changed or re-reported) for that long.
-    * After any gap the first valid reading is published at once.
+    * After any gap, and after a restart while the restored value is
+      showing, the first valid reading is published at once.
+
+    Readings are timed with the monotonic clock, so wall-clock steps can't
+    distort a window mean; window boundaries follow wall-clock time.
     """
 
     _attr_should_poll = False
@@ -92,6 +98,10 @@ class SignalConditionerSensor(RestoreSensor):
         self._pipeline = ConditioningPipeline(pipeline_config_from_data(config))
         self._follow_source, self._stale_after = availability_from_data(config)
         self._cancel_stale: CALLBACK_TYPE | None = None
+        self._cancel_window: CALLBACK_TYPE | None = None
+        # True while the value showing is the one restored from before a
+        # restart rather than a live reading.
+        self._showing_restored = False
         self._source_event_generation = 0
         self._source_health = SourceReferenceMonitor(
             hass, entry.entry_id, config[CONF_NAME], self._source_entity_id
@@ -102,6 +112,11 @@ class SignalConditionerSensor(RestoreSensor):
             # Show the conditioner on its source's device page.
             self.device_entry = async_entity_id_to_device(hass, self._source_entity_id)
         self._attr_name = config[CONF_NAME]
+        rounding = config.get(CONF_ROUNDING)
+        if isinstance(rounding, Mapping) and rounding.get(CONF_PRECISION) is not None:
+            # Show trailing zeros (21.50) and keep converted display units at
+            # the same precision.
+            self._attr_suggested_display_precision = int(rounding[CONF_PRECISION])
         # Explicit overrides; anything left unset follows the source.
         self._configured_unit: str | None = config.get(CONF_UNIT_OF_MEASUREMENT)
         self._configured_device_class: str | None = config.get(CONF_DEVICE_CLASS)
@@ -157,12 +172,8 @@ class SignalConditionerSensor(RestoreSensor):
             if self._has_value:
                 self._schedule_stale()
         if self._pipeline.config.window_duration > 0:
-            cancel_interval = async_track_time_interval(
-                self.hass,
-                self._async_interval,
-                timedelta(seconds=self._pipeline.config.window_duration),
-            )
-            self.async_on_remove(cancel_interval)
+            self._schedule_window(dt_util.utcnow())
+            self.async_on_remove(self._cancel_window_timer)
         self.async_on_remove(self._cancel_stale_timer)
 
     async def _async_restore(self) -> None:
@@ -190,8 +201,11 @@ class SignalConditionerSensor(RestoreSensor):
                     ATTR_UNIT_OF_MEASUREMENT: last_data.native_unit_of_measurement,
                 }
             )
-        self._pipeline.seed(value, dt_util.utcnow().timestamp())
+        # Not put in force in the window: an hours-old value must not be
+        # averaged in as if it were current. It shows until the source
+        # reports, and the first live reading replaces it at once.
         self._publish(value, write_state=False)
+        self._showing_restored = True
 
     @callback
     def _ensure_source_hidden(self) -> None:
@@ -225,20 +239,34 @@ class SignalConditionerSensor(RestoreSensor):
         new_state = event.data["new_state"]
         if new_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             return
-        if self._has_value:
-            self._schedule_stale()
-        else:
+        if not self._has_value:
             self._process_source_state(new_state)
+            return
+        # Only an accepted reading proves the source is alive, as for changes.
+        raw_value = self._raw_value(new_state)
+        if (
+            raw_value is not None
+            and self._pipeline.condition(raw_value).disposition
+            is not Disposition.REJECT
+        ):
+            self._schedule_stale()
+
+    def _raw_value(self, state: State) -> Any:
+        """Return the source reading, or None if the attribute is missing."""
+        if self._source_attribute:
+            return state.attributes.get(self._source_attribute)
+        return state.state
 
     @callback
     def _process_source_state(self, state: State, *, write_state: bool = True) -> None:
         """Extract and condition one source state."""
-        if self._source_attribute:
-            raw_value = state.attributes.get(self._source_attribute)
-            if raw_value is None:
-                return
-        else:
-            raw_value = state.state
+        raw_value = self._raw_value(state)
+        if raw_value is None:
+            # The attribute is gone: the reading is unknown, as for a source
+            # whose state is unknown.
+            if self._follow_source:
+                self._go_unknown()
+            return
 
         unit_changed = False
         if not self._source_attribute and self._apply_metadata(state.attributes):
@@ -247,7 +275,7 @@ class SignalConditionerSensor(RestoreSensor):
                 # Don't average readings taken in different units.
                 self._pipeline.reset()
 
-        result = self._pipeline.process(raw_value, dt_util.utcnow().timestamp())
+        result = self._pipeline.process(raw_value, time.monotonic())
         if result.disposition is Disposition.REJECT:
             _LOGGER.debug(
                 "Signal Conditioner rejected %s from %s: %s",
@@ -264,18 +292,44 @@ class SignalConditionerSensor(RestoreSensor):
         if (
             result.disposition is Disposition.PUBLISH
             or not self._has_value
+            or self._showing_restored
             or unit_changed
         ):
-            # A held reading is published at once when nothing is showing,
-            # or when the value showing is in a unit the source no longer uses.
+            # A held reading is published at once when nothing live is
+            # showing, or when the value showing is in a unit the source no
+            # longer uses.
             self._publish(result.value, write_state=write_state)
         if self._stale_after is not None and self._has_value:
             self._schedule_stale()
 
     @callback
-    def _async_interval(self, now: datetime) -> None:
+    def _schedule_window(self, after: datetime) -> None:
+        """Schedule the next window end on a wall-clock boundary.
+
+        Boundaries are whole multiples of the duration since the Unix epoch
+        (UTC), so a 60 s window ends on the minute, a 1-hour window on the
+        hour, and reloads or restarts don't shift them.
+        """
+        duration = self._pipeline.config.window_duration
+        boundary = (math.floor(after.timestamp() / duration) + 1) * duration
+        self._cancel_window = async_track_point_in_utc_time(
+            self.hass, self._async_window_end, dt_util.utc_from_timestamp(boundary)
+        )
+
+    @callback
+    def _cancel_window_timer(self) -> None:
+        if self._cancel_window is not None:
+            self._cancel_window()
+            self._cancel_window = None
+
+    @callback
+    def _async_window_end(self, scheduled: datetime) -> None:
         """Publish the value of the interval that just ended."""
-        result = self._pipeline.flush(now.timestamp())
+        # Never schedule a boundary that has already passed (e.g. after the
+        # host was suspended).
+        self._schedule_window(max(scheduled, dt_util.utcnow()))
+        # Same clock as the readings, so a late tick can't misorder them.
+        result = self._pipeline.flush(time.monotonic())
         if result.disposition is Disposition.PUBLISH:
             self._publish(result.value)
 
@@ -284,6 +338,7 @@ class SignalConditionerSensor(RestoreSensor):
         """Publish one conditioned value."""
         if value is None:
             return
+        self._showing_restored = False
         self._attr_native_value = value
         self._attr_available = True
         if write_state:

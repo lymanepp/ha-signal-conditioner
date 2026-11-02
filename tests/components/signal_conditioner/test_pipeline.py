@@ -78,16 +78,11 @@ def test_reset_forgets_the_value_in_force() -> None:
     assert pipeline.flush(120).value == 7
 
 
-def test_seed_puts_a_restored_value_in_force() -> None:
-    pipeline = ConditioningPipeline(PipelineConfig(window_duration=60))
-    pipeline.seed(20, 0)
-    pipeline.process(30, 30)
-    assert pipeline.flush(60).value == 25
-
-
-def test_seed_is_ignored_without_a_window() -> None:
-    pipeline = ConditioningPipeline(PipelineConfig())
-    pipeline.seed(20, 0)
+def test_condition_does_not_hold_the_reading() -> None:
+    """condition() only checks and converts; the window is untouched."""
+    pipeline = ConditioningPipeline(PipelineConfig(window_duration=60, maximum=10))
+    assert pipeline.condition(5).value == 5
+    assert pipeline.condition(50).disposition is Disposition.REJECT
     assert pipeline.flush(60).disposition is Disposition.HOLD
 
 

@@ -34,7 +34,8 @@ Source state or attribute
 
 - Source sensor
 - Optional source attribute
-- Optional output-name override
+- Optional output-name override; without one, the name is the source's name
+  plus "(conditioned)", so the two are easy to tell apart
 
 Signal Conditioner inherits the unit, device class, state class, and icon whenever a
 state-based source provides them, and keeps following the source: if the source
@@ -79,7 +80,9 @@ value_limits:
 
 ### Calibration
 
-- Raw and corrected value pairs
+- Raw and corrected value pairs, one pair per line: `38.68, 32` or `38.68 32`.
+  With decimal commas, use a semicolon or a space between the pair:
+  `38,68; 32`.
 - Polynomial degree; omitted degree defaults to `1`
 
 ### Time window
@@ -90,8 +93,10 @@ window:
   output: mean
 ```
 
-A configured instance owns a repeating interval timer and publishes once at each
-interval boundary. The source is treated as a sample-and-hold signal: each accepted
+A configured instance publishes once at each interval boundary. Boundaries are
+on the wall clock, at whole multiples of the duration (UTC): a 60-second window
+ends on the minute and a 5-minute window at :00, :05, :10, and so on. Reloads and
+restarts don't shift them; the first interval after one is just shorter. The source is treated as a sample-and-hold signal: each accepted
 calibrated reading stays in force until the next one, including across interval
 boundaries, so a quiet interval publishes the value still in force.
 
@@ -125,7 +130,11 @@ availability:
   on their own, such as MQTT sensors without an availability topic.
 - After a restart, while the source has no state yet, the sensor shows its last
   value from before the restart (unless `follow_source` is on and the source is
-  unavailable). `stale_after` applies to that restored value too.
+  unavailable). `stale_after` applies to that restored value too. The first live
+  reading replaces it at once, and the restored value is not averaged into a
+  window.
+- With a source attribute and `follow_source`, the sensor is unknown while the
+  attribute is missing.
 
 ### Missing-source diagnostics and Repairs
 
@@ -151,7 +160,8 @@ unloaded, reconfigured, or deleted. No additional YAML settings are needed.
 
 - Decimal places; an empty `rounding` block defaults to `precision: 2`
 
-Rounding is applied only to the published result.
+Rounding is applied only to the published result. It also sets the sensor's
+suggested display precision, so `21.5` with `precision: 2` shows as `21.50`.
 
 ## YAML example
 

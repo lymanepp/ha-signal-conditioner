@@ -303,6 +303,9 @@ def _normalize_source(
             if state and state.attributes.get("friendly_name")
             else source.split(".", 1)[1].replace("_", " ").title()
         )
+        # Distinct from the source, so the two are told apart in the UI and
+        # the entity ID isn't the source's with a _2 suffix.
+        name = f"{name} (conditioned)"
     data[CONF_NAME] = name
 
     attribute = str(data.get(CONF_ATTRIBUTE, "")).strip()
@@ -391,15 +394,11 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
             except (TypeError, ValueError):
                 errors["base"] = "invalid_configuration"
             else:
-                if minimum is not None and maximum is not None and minimum > maximum:
-                    errors["base"] = "invalid_configuration"
-                    return self.async_show_form(
-                        step_id="value_limits",
-                        data_schema=_value_limits_schema(
-                            {CONF_VALUE_LIMITS: user_input}
-                        ),
-                        errors=errors,
-                    )
+                if minimum is None and maximum is None:
+                    errors["base"] = "limits_empty"
+                elif minimum is not None and maximum is not None and minimum > maximum:
+                    errors["base"] = "minimum_above_maximum"
+            if not errors:
                 self._flow_data[CONF_VALUE_LIMITS] = normalized
                 self._completed.add(CONF_ENABLE_LIMITS)
                 return await self._next_step()
@@ -417,6 +416,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
         if user_input is not None:
             try:
                 points = parse_data_points_text(
@@ -427,7 +427,10 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_DEGREE: int(user_input.get(CONF_DEGREE, DEFAULT_DEGREE)),
                 }
                 PolynomialCalibration.fit(points, degree=normalized[CONF_DEGREE])
-            except (CalibrationError, TypeError, ValueError):
+            except CalibrationError as err:
+                errors["base"] = "invalid_calibration"
+                placeholders["error"] = str(err)
+            except (TypeError, ValueError):
                 errors["base"] = "invalid_configuration"
             else:
                 self._flow_data[CONF_CALIBRATION] = normalized
@@ -441,6 +444,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 else self._defaults
             ),
             errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_window(
@@ -586,7 +590,19 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _finish(self) -> ConfigFlowResult:
         data = dict(self._flow_data)
-        pipeline_config_from_data(data)
+        try:
+            pipeline_config_from_data(data)
+        except PipelineConfigurationError:
+            # Each step validates its own part, so this is a combination
+            # problem: start over from the first form, keeping the input.
+            _LOGGER.exception("Invalid Signal Conditioner configuration")
+            return self.async_show_form(
+                step_id="reconfigure" if self._reconfigure_entry else "user",
+                data_schema=_source_schema(
+                    data, reconfigure=self._reconfigure_entry is not None
+                ),
+                errors={"base": "invalid_configuration"},
+            )
         if self._reconfigure_entry:
             async_update_hidden_source(self.hass, self._reconfigure_entry, data)
             return self.async_update_reload_and_abort(

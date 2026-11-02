@@ -65,6 +65,10 @@ async def test_sensor_updates_and_inherits_metadata(hass: HomeAssistant) -> None
     assert float(state.state) == 5.0
     assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == "°C"
     assert state.attributes[ATTR_DEVICE_CLASS] == "temperature"
+    # Rounding also sets the display precision, so 5.0 shows as 5.00.
+    registry_entry = er.async_get(hass).async_get("sensor.corrected_temperature")
+    assert registry_entry is not None
+    assert registry_entry.options["sensor"]["suggested_display_precision"] == 2
 
     hass.states.async_set(
         "sensor.raw_temperature", "7", {ATTR_UNIT_OF_MEASUREMENT: "°C"}
