@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.signal_conditioner import CONFIG_SCHEMA
+from custom_components.signal_conditioner import YAML_CONFIG_SCHEMA
 from custom_components.signal_conditioner.const import (
     CONF_AVAILABILITY,
     CONF_DURATION,
@@ -84,7 +84,7 @@ async def test_reimport_replaces_data_instead_of_merging(
 async def test_unchanged_reimport_leaves_entry_alone(hass: HomeAssistant) -> None:
     """An identical YAML entry causes no update (and so no reload)."""
     yaml = {DOMAIN: {"same": {CONF_SOURCE: "sensor.raw"}}}
-    data = {**CONFIG_SCHEMA(yaml)[DOMAIN]["same"], CONF_NAME: "Same"}
+    data = {**YAML_CONFIG_SCHEMA(yaml)[DOMAIN]["same"], CONF_NAME: "Same"}
     entry = MockConfigEntry(
         domain=DOMAIN, title="Same", unique_id="same", source=SOURCE_IMPORT, data=data
     )
@@ -102,7 +102,7 @@ async def test_unchanged_reimport_leaves_entry_alone(hass: HomeAssistant) -> Non
 
 
 def test_yaml_limit_mode_defaults_to_reject_and_accepts_clamp() -> None:
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {
             DOMAIN: {
                 "a": {CONF_SOURCE: "sensor.a", CONF_VALUE_LIMITS: {CONF_MINIMUM: 0}},
@@ -118,7 +118,7 @@ def test_yaml_limit_mode_defaults_to_reject_and_accepts_clamp() -> None:
 
 
 def test_yaml_availability_block() -> None:
-    validated = CONFIG_SCHEMA(
+    validated = YAML_CONFIG_SCHEMA(
         {
             DOMAIN: {
                 "a": {CONF_SOURCE: "sensor.a", CONF_AVAILABILITY: {}},
