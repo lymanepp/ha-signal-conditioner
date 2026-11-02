@@ -9,8 +9,6 @@
   "integration_type": "helper",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/lymanepp/ha-signal-conditioner/issues",
-  "requirements": [
-    "numpy==2.3.2"
-  ],
+  "requirements": [],
   "version": "0.1.0"
 }
