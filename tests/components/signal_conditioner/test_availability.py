@@ -158,7 +158,7 @@ async def test_restores_last_value_while_source_is_missing(
 
     # The restored value is averaged with the first live reading.
     await _tick(hass, freezer, 30)
-    hass.states.async_set(SOURCE, "72.25")
+    hass.states.async_set(SOURCE, "72.25", {ATTR_UNIT_OF_MEASUREMENT: "°F"})
     await hass.async_block_till_done()
     await _tick(hass, freezer, 30)
     assert float(_state(hass)) == 71.75

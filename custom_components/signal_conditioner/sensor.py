@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 import logging
-from typing import cast
+from typing import Any, cast
 
 from homeassistant.components.sensor import (
     ATTR_STATE_CLASS,
@@ -101,14 +102,14 @@ class SignalConditionerSensor(RestoreSensor):
             # Show the conditioner on its source's device page.
             self.device_entry = async_entity_id_to_device(hass, self._source_entity_id)
         self._attr_name = config[CONF_NAME]
-        self._attr_native_unit_of_measurement = config.get(CONF_UNIT_OF_MEASUREMENT)
-        self._attr_device_class = cast(
-            SensorDeviceClass | None, config.get(CONF_DEVICE_CLASS)
-        )
-        self._attr_state_class = cast(
-            SensorStateClass | None, config.get(CONF_STATE_CLASS)
-        )
-        self._attr_icon = config.get(CONF_ICON)
+        # Explicit overrides; anything left unset follows the source.
+        self._configured_unit: str | None = config.get(CONF_UNIT_OF_MEASUREMENT)
+        self._configured_device_class: str | None = config.get(CONF_DEVICE_CLASS)
+        self._configured_state_class: str | None = config.get(CONF_STATE_CLASS)
+        self._configured_icon: str | None = config.get(CONF_ICON)
+        # Must be set before _apply_metadata reads it to detect a unit change.
+        self._attr_native_unit_of_measurement = None
+        self._apply_metadata({})
         self._attr_available = False
 
     @property
@@ -179,12 +180,16 @@ class SignalConditionerSensor(RestoreSensor):
             value = float(cast(float, last_data.native_value))
         except (TypeError, ValueError):
             return
-        if (
-            self._attr_native_unit_of_measurement is None
-            and last_data.native_unit_of_measurement is not None
-        ):
-            self._attr_native_unit_of_measurement = last_data.native_unit_of_measurement
-        self._inherit_source_metadata(last_state)
+        if not self._source_attribute:
+            # Show what was inherited before the restart until the source
+            # reports. Use the native unit: the state's unit attribute is the
+            # display unit, which may be converted.
+            self._apply_metadata(
+                {
+                    **last_state.attributes,
+                    ATTR_UNIT_OF_MEASUREMENT: last_data.native_unit_of_measurement,
+                }
+            )
         self._pipeline.seed(value, dt_util.utcnow().timestamp())
         self._publish(value, write_state=False)
 
@@ -234,7 +239,13 @@ class SignalConditionerSensor(RestoreSensor):
                 return
         else:
             raw_value = state.state
-            self._inherit_source_metadata(state)
+
+        unit_changed = False
+        if not self._source_attribute and self._apply_metadata(state.attributes):
+            unit_changed = self._has_value
+            if unit_changed:
+                # Don't average readings taken in different units.
+                self._pipeline.reset()
 
         result = self._pipeline.process(raw_value, dt_util.utcnow().timestamp())
         if result.disposition is Disposition.REJECT:
@@ -244,9 +255,19 @@ class SignalConditionerSensor(RestoreSensor):
                 self._source_entity_id,
                 result.reason,
             )
+            if unit_changed:
+                # The value showing is in the old unit: don't relabel it.
+                self._attr_native_value = None
+                if write_state:
+                    self.async_write_ha_state()
             return
-        if result.disposition is Disposition.PUBLISH or not self._has_value:
-            # A held reading is published at once when nothing is showing.
+        if (
+            result.disposition is Disposition.PUBLISH
+            or not self._has_value
+            or unit_changed
+        ):
+            # A held reading is published at once when nothing is showing,
+            # or when the value showing is in a unit the source no longer uses.
             self._publish(result.value, write_state=write_state)
         if self._stale_after is not None and self._has_value:
             self._schedule_stale()
@@ -312,25 +333,27 @@ class SignalConditionerSensor(RestoreSensor):
         self._go_unavailable()
 
     @callback
-    def _inherit_source_metadata(self, state: State) -> None:
-        """Inherit source metadata only when not explicitly configured."""
-        if (
-            self._attr_native_unit_of_measurement is None
-            and (unit := state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)) is not None
-        ):
-            self._attr_native_unit_of_measurement = unit
-        if (
-            self._attr_device_class is None
-            and (device_class := state.attributes.get(ATTR_DEVICE_CLASS)) is not None
-        ):
-            self._attr_device_class = cast(SensorDeviceClass, device_class)
-        if (
-            self._attr_state_class is None
-            and (state_class := state.attributes.get(ATTR_STATE_CLASS)) is not None
-        ):
-            self._attr_state_class = cast(SensorStateClass, state_class)
-        if (
-            self._attr_icon is None
-            and (icon := state.attributes.get(ATTR_ICON)) is not None
-        ):
-            self._attr_icon = icon
+    def _apply_metadata(self, attributes: Mapping[str, Any]) -> bool:
+        """Set metadata from overrides, else from the source's attributes.
+
+        Re-evaluated on every source reading, so a source that changes its
+        unit is followed instead of being labeled with a stale one. The device
+        class is inherited only together with the unit: an explicit unit
+        (e.g. % for a voltage source) must not be paired with the source's
+        device class. Returns True if the unit changed.
+        """
+        unit = self._configured_unit
+        device_class = self._configured_device_class
+        if unit is None:
+            unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+            if device_class is None:
+                device_class = attributes.get(ATTR_DEVICE_CLASS)
+        unit_changed = unit != self._attr_native_unit_of_measurement
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = cast(SensorDeviceClass | None, device_class)
+        self._attr_state_class = cast(
+            SensorStateClass | None,
+            self._configured_state_class or attributes.get(ATTR_STATE_CLASS),
+        )
+        self._attr_icon = self._configured_icon or attributes.get(ATTR_ICON)
+        return unit_changed
