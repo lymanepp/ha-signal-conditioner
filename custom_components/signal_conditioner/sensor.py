@@ -35,9 +35,7 @@ from homeassistant.core import (
     State,
     callback,
 )
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.entity_registry import RegistryEntryHider
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -47,56 +45,12 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .config import availability_from_data, pipeline_config_from_data
-from .const import CONF_HIDE_SOURCE, CONF_STATE_CLASS, DOMAIN
+from .const import CONF_HIDE_SOURCE, CONF_STATE_CLASS
 from .pipeline import ConditioningPipeline, Disposition
 from .source_health import SourceReferenceMonitor
+from .source_hiding import async_hide_source
 
 _LOGGER = logging.getLogger(__name__)
-
-
-_HIDE_OWNERS = "hide_owners"
-_HIDE_OWNED = "hide_owned"
-
-
-def _hide_state(hass: HomeAssistant) -> tuple[dict[str, set[str]], set[str]]:
-    data = hass.data.setdefault(DOMAIN, {})
-    owners = data.setdefault(_HIDE_OWNERS, {})
-    owned = data.setdefault(_HIDE_OWNED, set())
-    return owners, owned
-
-
-def _claim_hidden_source(hass: HomeAssistant, source: str, entry_id: str) -> None:
-    owners, owned = _hide_state(hass)
-    source_owners = owners.setdefault(source, set())
-    source_owners.add(entry_id)
-
-    registry = er.async_get(hass)
-    source_entry = registry.async_get(source)
-    if source_entry is not None and source_entry.hidden_by is None:
-        registry.async_update_entity(source, hidden_by=RegistryEntryHider.INTEGRATION)
-        owned.add(source)
-
-
-def _release_hidden_source(hass: HomeAssistant, source: str, entry_id: str) -> None:
-    owners, owned = _hide_state(hass)
-    source_owners = owners.get(source)
-    if source_owners is None:
-        return
-    source_owners.discard(entry_id)
-    if source_owners:
-        return
-    owners.pop(source, None)
-
-    if source not in owned:
-        return
-    registry = er.async_get(hass)
-    source_entry = registry.async_get(source)
-    if (
-        source_entry is not None
-        and source_entry.hidden_by is RegistryEntryHider.INTEGRATION
-    ):
-        registry.async_update_entity(source, hidden_by=None)
-    owned.discard(source)
 
 
 async def async_setup_entry(
@@ -129,10 +83,10 @@ class SignalConditionerSensor(RestoreSensor):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         config = entry.data
-        self._entry_id = entry.entry_id
         self._source_entity_id = config[CONF_SOURCE]
         self._source_attribute = config.get(CONF_ATTRIBUTE)
         self._hide_source = bool(config.get(CONF_HIDE_SOURCE))
+        self._source_hidden = False
         self._pipeline = ConditioningPipeline(pipeline_config_from_data(config))
         self._follow_source, self._stale_after = availability_from_data(config)
         self._cancel_stale: CALLBACK_TYPE | None = None
@@ -159,8 +113,7 @@ class SignalConditionerSensor(RestoreSensor):
 
     async def async_added_to_hass(self) -> None:
         """Prime the sensor, subscribe to the source, and start its interval."""
-        if self._hide_source:
-            _claim_hidden_source(self.hass, self._source_entity_id, self._entry_id)
+        self._ensure_source_hidden()
 
         self.async_on_remove(
             async_track_state_change_event(
@@ -231,23 +184,19 @@ class SignalConditionerSensor(RestoreSensor):
         self._pipeline.seed(value, dt_util.utcnow().timestamp())
         self._publish(value, write_state=False)
 
-    async def async_will_remove_from_hass(self) -> None:
-        """Release source hiding owned by this entity."""
-        if self._hide_source:
-            _release_hidden_source(self.hass, self._source_entity_id, self._entry_id)
+    @callback
+    def _ensure_source_hidden(self) -> None:
+        """Hide the source once it is registered (it may register late)."""
+        if self._hide_source and not self._source_hidden:
+            self._source_hidden = async_hide_source(self.hass, self._source_entity_id)
 
     @callback
     def _async_source_state_listener(self, event: Event[EventStateChangedData]) -> None:
         """Handle source entity state changes."""
         self._source_event_generation += 1
         self._source_health.async_source_changed()
-        # Sources may be created after the conditioner at startup. Retry the
-        # initial hide once the source appears in the entity registry.
-        if (
-            self._hide_source
-            and self._source_entity_id not in _hide_state(self.hass)[1]
-        ):
-            _claim_hidden_source(self.hass, self._source_entity_id, self._entry_id)
+        # Sources may be created after the conditioner at startup.
+        self._ensure_source_hidden()
         new_state = event.data["new_state"]
         if new_state is None or new_state.state == STATE_UNAVAILABLE:
             if self._follow_source:

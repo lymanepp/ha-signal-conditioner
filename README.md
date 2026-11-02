@@ -43,6 +43,13 @@ attribute-based sources inherit none of the parent entity metadata unless an
 override is configured. The same fields are available when reconfiguring an
 existing Signal Conditioner sensor, and clearing a field removes that override.
 
+`hide_source` hides the source entity in the entity registry (not available with
+a source attribute). The source stays hidden across restarts and reloads, and is
+unhidden when the conditioner is deleted or disabled, when `hide_source` is
+turned off, or when a YAML conditioner switches to a different source. A source
+shared by several hiding conditioners stays hidden until none of them hides it,
+and a source you hid yourself is never unhidden.
+
 ### Custom value limits
 
 - Minimum valid value

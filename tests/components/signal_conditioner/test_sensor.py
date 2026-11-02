@@ -111,7 +111,7 @@ async def test_unavailable_source_retains_last_valid_value(hass: HomeAssistant) 
     assert hass.states.get("sensor.stable_value").state == "3.0"
 
 
-async def test_hide_source_is_reversed_on_unload(hass: HomeAssistant) -> None:
+async def test_hide_source_is_reversed_on_remove(hass: HomeAssistant) -> None:
     """Undo only source hiding owned by Signal Conditioner."""
 
     registry = er.async_get(hass)
@@ -146,6 +146,14 @@ async def test_hide_source_is_reversed_on_unload(hass: HomeAssistant) -> None:
     )
 
     assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    # A plain unload (reload, shutdown) keeps the source hidden.
+    assert (
+        registry.async_get("sensor.raw_hidden").hidden_by
+        is RegistryEntryHider.INTEGRATION
+    )
+
+    await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
     assert registry.async_get("sensor.raw_hidden").hidden_by is None
 
@@ -186,7 +194,7 @@ async def test_late_created_source_is_hidden_when_requested(
         is RegistryEntryHider.INTEGRATION
     )
 
-    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
     assert registry.async_get("sensor.late_raw").hidden_by is None
 

@@ -66,6 +66,7 @@ from .const import (
 )
 from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
 from .source_health import source_issue_id
+from .source_hiding import async_release_entry_source
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -251,9 +252,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Signal Conditioner config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    # A plain unload (reload, shutdown) keeps the source hidden; a disabled
+    # conditioner should not keep its source out of sight.
+    if unloaded and entry.disabled_by is not None:
+        async_release_entry_source(hass, entry)
+    return unloaded
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove any lingering Repairs issue for an entry that was deleted."""
+    """Clean up the Repairs issue and source hiding of a deleted entry."""
     async_delete_issue(hass, DOMAIN, source_issue_id(entry.entry_id))
+    async_release_entry_source(hass, entry)
