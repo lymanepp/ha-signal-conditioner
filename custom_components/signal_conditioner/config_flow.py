@@ -15,6 +15,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import (
     SOURCE_IMPORT,
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
 )
@@ -524,10 +525,15 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 return self.async_abort(reason="already_configured")
             if entry.data != user_input or entry.title != user_input[CONF_NAME]:
-                # The entry's update listener reloads it when it is loaded.
                 self.hass.config_entries.async_update_entry(
                     entry, title=user_input[CONF_NAME], data=user_input
                 )
+                # No update listener (reconfigure reloads via
+                # async_update_reload_and_abort), so reload here. A not-loaded
+                # entry (disabled, or not yet set up at startup) reads the new
+                # data when it is set up.
+                if entry.state is not ConfigEntryState.NOT_LOADED:
+                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
             return self.async_abort(reason="already_configured")
         return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
 

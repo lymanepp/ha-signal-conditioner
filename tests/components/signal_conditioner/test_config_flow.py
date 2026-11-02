@@ -1,5 +1,7 @@
 """Tests for the Signal Conditioner config flow."""
 
+from unittest.mock import patch
+
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -11,6 +13,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.signal_conditioner.const import (
     CONF_AVAILABILITY,
@@ -380,3 +384,46 @@ async def test_reconfigure_offers_saved_availability(hass: HomeAssistant) -> Non
     assert markers[CONF_STALE_AFTER].description == {
         "suggested_value": {"seconds": 600.0}
     }
+
+
+async def test_reconfigure_reloads_a_loaded_entry_once(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Reconfigure reloads exactly once, without the update-listener warning."""
+    hass.states.async_set("sensor.raw", "5")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Plain",
+        unique_id="sensor.raw",
+        data={CONF_NAME: "Plain", CONF_SOURCE: "sensor.raw"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await entry.start_reconfigure_flow(hass)
+    with patch.object(
+        hass.config_entries,
+        "async_reload",
+        wraps=hass.config_entries.async_reload,
+    ) as reload:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                key: value
+                for key, value in _plain_source(
+                    **{CONF_NAME: "Renamed", CONF_UNIT_OF_MEASUREMENT: "V"}
+                ).items()
+                if key not in (CONF_SOURCE, "attribute")
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert reload.call_count == 1
+    assert entry.state is config_entries.ConfigEntryState.LOADED
+    assert "update listener" not in caplog.text
+    state = hass.states.get("sensor.plain")
+    assert state is not None
+    assert state.attributes["unit_of_measurement"] == "V"
