@@ -94,6 +94,7 @@ from .const import (
     WINDOW_OUTPUT_MEAN,
 )
 from .pipeline import MAX_WINDOW_SECONDS, LimitMode, PipelineConfigurationError
+from .source_hiding import async_update_hidden_source
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -524,6 +525,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 return self.async_abort(reason="already_configured")
             if entry.data != user_input or entry.title != user_input[CONF_NAME]:
+                async_update_hidden_source(self.hass, entry, user_input)
                 # The entry's update listener reloads it when it is loaded.
                 self.hass.config_entries.async_update_entry(
                     entry, title=user_input[CONF_NAME], data=user_input
@@ -588,6 +590,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         data = dict(self._flow_data)
         pipeline_config_from_data(data)
         if self._reconfigure_entry:
+            async_update_hidden_source(self.hass, self._reconfigure_entry, data)
             return self.async_update_reload_and_abort(
                 self._reconfigure_entry, title=data[CONF_NAME], data=data
             )
