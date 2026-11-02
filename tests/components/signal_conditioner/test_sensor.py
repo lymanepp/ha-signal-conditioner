@@ -66,7 +66,9 @@ async def test_sensor_updates_and_inherits_metadata(hass: HomeAssistant) -> None
     assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == "°C"
     assert state.attributes[ATTR_DEVICE_CLASS] == "temperature"
 
-    hass.states.async_set("sensor.raw_temperature", "7", {})
+    hass.states.async_set(
+        "sensor.raw_temperature", "7", {ATTR_UNIT_OF_MEASUREMENT: "°C"}
+    )
     await hass.async_block_till_done()
 
     state = hass.states.get("sensor.corrected_temperature")

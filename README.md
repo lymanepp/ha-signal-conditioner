@@ -37,8 +37,13 @@ Source state or attribute
 - Optional output-name override
 
 Signal Conditioner inherits the unit, device class, state class, and icon whenever a
-state-based source provides them. The config flow exposes validated overrides
-for all four values. Explicit overrides win over inherited metadata;
+state-based source provides them, and keeps following the source: if the source
+changes its unit (for example °F to °C), the conditioner switches too, restarts
+any time window so readings in different units are never averaged, and
+publishes the new reading at once. The device class is inherited only together
+with the unit, so an explicit unit (say `%` for a calibrated voltage source) is
+never paired with the source's device class. The config flow exposes validated
+overrides for all four values. Explicit overrides win over inherited metadata;
 attribute-based sources inherit none of the parent entity metadata unless an
 override is configured. The same fields are available when reconfiguring an
 existing Signal Conditioner sensor, and clearing a field removes that override.
