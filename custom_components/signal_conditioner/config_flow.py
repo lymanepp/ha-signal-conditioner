@@ -87,7 +87,12 @@ from .const import (
     WINDOW_OUTPUT_LATEST,
     WINDOW_OUTPUT_MEAN,
 )
-from .pipeline import MAX_WINDOW_SECONDS, LimitMode, PipelineConfigurationError
+from .pipeline import (
+    MAX_WINDOW_SECONDS,
+    MIN_WINDOW_SECONDS,
+    LimitMode,
+    PipelineConfigurationError,
+)
 from .source_hiding import async_update_hidden_source
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,6 +103,10 @@ _METADATA_KEYS = (
     CONF_STATE_CLASS,
     CONF_ICON,
 )
+
+
+class _StaleAfterError(PipelineConfigurationError):
+    """stale_after is outside its allowed range."""
 
 
 def _duration_number(value: object) -> float:
@@ -206,7 +215,8 @@ def _stale_after_defaults(defaults: Mapping[str, Any]) -> dict[str, Any]:
 
 def _value_limits_schema(defaults: Mapping[str, Any]) -> vol.Schema:
     defaults = _section(defaults, CONF_VALUE_LIMITS)
-    number = NumberSelectorConfig(mode=NumberSelectorMode.BOX)
+    # step="any": limits like 0.5 are valid, the default step is 1.
+    number = NumberSelectorConfig(mode=NumberSelectorMode.BOX, step="any")
     mode = str(defaults.get(CONF_MODE, LIMIT_MODE_REJECT))
     return vol.Schema(
         {
@@ -335,8 +345,8 @@ def _normalize_source(
             if isinstance(stale_after, Mapping)
             else float(stale_after)
         )
-        if not 0 <= seconds <= MAX_WINDOW_SECONDS:
-            raise PipelineConfigurationError("stale_after is out of range")
+        if seconds != 0 and not MIN_WINDOW_SECONDS <= seconds <= MAX_WINDOW_SECONDS:
+            raise _StaleAfterError("stale_after is out of range")
         if seconds > 0:
             availability[CONF_STALE_AFTER] = seconds
     data[CONF_AVAILABILITY] = availability
@@ -454,7 +464,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
 
             def validate_window_seconds(seconds: float) -> None:
-                if not 0 < seconds <= MAX_WINDOW_SECONDS:
+                if not MIN_WINDOW_SECONDS <= seconds <= MAX_WINDOW_SECONDS:
                     raise ValueError
 
             try:
@@ -511,16 +521,10 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         # Replace, never merge: _abort_if_unique_id_configured(updates=...)
         # merges into the old data, so a block deleted from the YAML (a
         # window, limits, ...) would silently stay in force.
+        # UI entries have no unique ID, so only YAML entries can match.
         for entry in self._async_current_entries(include_ignore=False):
-            if entry.unique_id != unique_id:
+            if entry.unique_id != unique_id or entry.source != SOURCE_IMPORT:
                 continue
-            if entry.source != SOURCE_IMPORT:
-                _LOGGER.error(
-                    "Skipping Signal Conditioner YAML key '%s': a UI-created "
-                    "configuration already owns this unique ID",
-                    unique_id,
-                )
-                return self.async_abort(reason="already_configured")
             if entry.data != user_input or entry.title != user_input[CONF_NAME]:
                 async_update_hidden_source(self.hass, entry, user_input)
                 self.hass.config_entries.async_update_entry(
@@ -551,6 +555,8 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._flow_data, self._enabled = _normalize_source(
                     self.hass, source_input
                 )
+            except _StaleAfterError:
+                errors["base"] = "stale_after_out_of_range"
             except (TypeError, ValueError):  # includes PipelineConfigurationError
                 errors["base"] = "invalid_configuration"
             else:

@@ -360,3 +360,20 @@ async def test_unknown_source_report_is_ignored_for_staleness(
     hass.states.async_set(SOURCE, STATE_UNKNOWN)
     await hass.async_block_till_done()
     assert _state(hass) == STATE_UNAVAILABLE
+
+
+async def test_unchanged_window_value_is_not_rewritten(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    _on_minute(freezer)
+    hass.states.async_set(SOURCE, "5")
+    await _setup(hass, **{CONF_WINDOW: {CONF_DURATION: 60}})
+    first = hass.states.get(TARGET)
+    assert first is not None
+    reported = first.last_reported  # the State object is updated in place
+    await _tick(hass, freezer, 60)
+    await _tick(hass, freezer, 60)
+    state = hass.states.get(TARGET)
+    assert state is not None
+    assert state.state == "5.0"
+    assert state.last_reported == reported

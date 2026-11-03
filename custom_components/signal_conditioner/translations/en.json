@@ -122,7 +122,8 @@
       "invalid_configuration": "The selected behavior configuration is invalid.",
       "invalid_calibration": "Invalid calibration: {error}.",
       "limits_empty": "Enter a minimum, a maximum, or both.",
-      "minimum_above_maximum": "The minimum cannot be greater than the maximum."
+      "minimum_above_maximum": "The minimum cannot be greater than the maximum.",
+      "stale_after_out_of_range": "Unavailable-after must be between 1 second and 24 hours, or zero to turn it off."
     },
     "abort": {
       "already_configured": "This Signal Conditioner helper is already configured.",
@@ -157,6 +158,11 @@
     "disabled_source": {
       "title": "Signal Conditioner source entity is disabled",
       "description": "**{conditioner}** references **{source}**, but that entity is disabled in Home Assistant. Enable the source entity or choose a different source in the Signal Conditioner configuration or YAML. The issue clears automatically when the reference is valid."
+    }
+  },
+  "exceptions": {
+    "invalid_yaml": {
+      "message": "Invalid Signal Conditioner YAML, nothing was changed: {errors}"
     }
   }
 }

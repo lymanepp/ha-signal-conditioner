@@ -6,12 +6,12 @@ from homeassistant.config_entries import SOURCE_IMPORT, SOURCE_USER, ConfigEntry
 from homeassistant.const import CONF_NAME, CONF_SOURCE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.signal_conditioner import vol
 from custom_components.signal_conditioner.const import DOMAIN
 
 BAD_WINDOW = {CONF_SOURCE: "sensor.raw", "window": {"duration": -10}}
@@ -106,8 +106,10 @@ async def test_reload_reports_invalid_keys_and_clears_when_fixed(
     await hass.async_block_till_done()
     assert _issue(hass) is None
 
-    with pytest.raises(vol.Invalid, match="garage"):
+    with pytest.raises(ServiceValidationError) as raised:
         await _reload(hass, {DOMAIN: {"garage": BAD_WINDOW}})
+    assert raised.value.translation_key == "invalid_yaml"
+    assert "garage" in raised.value.translation_placeholders["errors"]
     assert _issue(hass) is not None
     assert [e.unique_id for e in hass.config_entries.async_entries(DOMAIN)] == [
         "garage"

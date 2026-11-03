@@ -172,3 +172,12 @@ def test_empty_rounding_defaults_to_two_places() -> None:
         {DOMAIN: {"rounded": {CONF_SOURCE: "sensor.raw", CONF_ROUNDING: {}}}}
     )
     assert validated[DOMAIN]["rounded"][CONF_ROUNDING][CONF_PRECISION] == 2
+
+
+@pytest.mark.parametrize("block", ["window", "availability"])
+def test_sub_second_durations_are_rejected(block: str) -> None:
+    key = "duration" if block == "window" else "stale_after"
+    with pytest.raises(vol.Invalid):
+        YAML_CONFIG_SCHEMA(
+            {DOMAIN: {"fast": {CONF_SOURCE: "sensor.raw", block: {key: 0.001}}}}
+        )

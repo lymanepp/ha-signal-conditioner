@@ -160,5 +160,16 @@ def test_default_window_output_is_mean() -> None:
 
 
 def test_pipeline_config_enforces_maximum_window_duration() -> None:
-    with pytest.raises(PipelineConfigurationError, match="between 0"):
+    with pytest.raises(PipelineConfigurationError, match="between 1"):
         PipelineConfig(window_duration=MAX_WINDOW_SECONDS + 1)
+
+
+@pytest.mark.parametrize("value", [True, False, "1_000"])
+def test_values_float_accepts_but_readings_are_not(value: object) -> None:
+    pipeline = ConditioningPipeline(PipelineConfig())
+    assert pipeline.process(value).disposition is Disposition.REJECT
+
+
+def test_sub_second_window_is_rejected() -> None:
+    with pytest.raises(PipelineConfigurationError, match="between 1"):
+        PipelineConfig(window_duration=0.5)
