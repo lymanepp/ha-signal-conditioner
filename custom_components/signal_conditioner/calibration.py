@@ -51,8 +51,31 @@ def normalize_data_points(
             )
         )
     if not normalized:
-        raise CalibrationError("at least two data points are required")
+        raise CalibrationError("no calibration points were entered")
     return tuple(normalized)
+
+
+def _split_pair(line: str) -> list[str] | None:
+    """Split one line into its two numbers, or return None.
+
+    Accepts ``1.5, 2.5``, ``1.5 2.5`` and, for decimal commas, ``1,5; 2,5``
+    or ``1,5 2,5``.
+    """
+    comma_parts = line.split(",")
+    if ";" in line:
+        parts, decimal_comma = line.split(";"), True
+    elif len(comma_parts) == 2 and not any(  # noqa: PLR2004
+        len(part.split()) > 1 for part in comma_parts
+    ):
+        parts, decimal_comma = comma_parts, False
+    else:
+        parts, decimal_comma = line.split(), True
+    if len(parts) != 2:  # noqa: PLR2004
+        return None
+    parts = [part.strip() for part in parts]
+    if decimal_comma:
+        parts = [part.replace(",", ".") for part in parts]
+    return parts
 
 
 def parse_data_points_text(value: str) -> tuple[tuple[float, float], ...]:
@@ -62,10 +85,11 @@ def parse_data_points_text(value: str) -> tuple[tuple[float, float], ...]:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        parts = [part.strip() for part in line.split(",")]
-        if len(parts) != 2:  # noqa: PLR2004
+        parts = _split_pair(line)
+        if parts is None:
             raise CalibrationError(
-                f"line {line_number} must use the format: input, output"
+                f"line {line_number} must be two numbers: input, output "
+                "(with decimal commas: input; output)"
             )
         pairs.append((parts[0], parts[1]))
     return normalize_data_points(pairs)

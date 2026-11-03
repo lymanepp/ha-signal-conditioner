@@ -44,6 +44,7 @@ from custom_components.signal_conditioner.const import (
     LIMIT_MODE_REJECT,
     WINDOW_OUTPUT_MEAN,
 )
+from custom_components.signal_conditioner.pipeline import PipelineConfigurationError
 
 
 async def _source_step(
@@ -125,7 +126,7 @@ async def test_only_enabled_steps_are_visited(hass: HomeAssistant) -> None:
 async def test_source_only_pipeline_finishes_immediately(hass: HomeAssistant) -> None:
     result = await _source_step(hass)
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Garage Humidity Raw"
+    assert result["title"] == "Garage Humidity Raw (conditioned)"
 
 
 async def test_metadata_overrides_are_saved(hass: HomeAssistant) -> None:
@@ -427,3 +428,62 @@ async def test_reconfigure_reloads_a_loaded_entry_once(
     state = hass.states.get("sensor.plain")
     assert state is not None
     assert state.attributes["unit_of_measurement"] == "V"
+
+
+async def test_value_limits_need_a_minimum_or_maximum(hass: HomeAssistant) -> None:
+    result = await _source_step(hass, limits=True)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_MODE: LIMIT_MODE_CLAMP}
+    )
+    assert result["step_id"] == "value_limits"
+    assert result["errors"] == {"base": "limits_empty"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_MINIMUM: 10, CONF_MAXIMUM: 0}
+    )
+    assert result["errors"] == {"base": "minimum_above_maximum"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_MAXIMUM: 100}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_calibration_error_names_the_problem(hass: HomeAssistant) -> None:
+    result = await _source_step(hass, calibration=True)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_DATA_POINTS_TEXT: "1, 2", CONF_DEGREE: 1}
+    )
+    assert result["errors"] == {"base": "invalid_calibration"}
+    assert "at least 2 points" in result["description_placeholders"]["error"]
+
+
+async def test_calibration_accepts_decimal_commas(hass: HomeAssistant) -> None:
+    result = await _source_step(hass, calibration=True)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_DATA_POINTS_TEXT: "38,68; 32\n79,89 75", CONF_DEGREE: 1},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_CALIBRATION][CONF_DATA_POINTS] == [
+        [38.68, 32.0],
+        [79.89, 75.0],
+    ]
+
+
+async def test_invalid_combination_returns_to_first_form(hass: HomeAssistant) -> None:
+    """A final validation failure shows an error instead of crashing the flow."""
+    hass.states.async_set("sensor.raw", "1")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    with patch(
+        "custom_components.signal_conditioner.config_flow.pipeline_config_from_data",
+        side_effect=PipelineConfigurationError("boom"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], _plain_source()
+        )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"base": "invalid_configuration"}

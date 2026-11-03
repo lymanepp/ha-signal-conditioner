@@ -94,7 +94,7 @@
           "degree": "Polynomial degree"
         },
         "data_description": {
-          "data_points_text": "Example: 38.68, 32",
+          "data_points_text": "One raw, corrected pair per line, for example 38.68, 32. With decimal commas, separate the pair with a semicolon: 38,68; 32.",
           "degree": "Use 1 for ordinary linear calibration."
         }
       },
@@ -119,7 +119,10 @@
       }
     },
     "error": {
-      "invalid_configuration": "The selected behavior configuration is invalid."
+      "invalid_configuration": "The selected behavior configuration is invalid.",
+      "invalid_calibration": "Invalid calibration: {error}.",
+      "limits_empty": "Enter a minimum, a maximum, or both.",
+      "minimum_above_maximum": "The minimum cannot be greater than the maximum."
     },
     "abort": {
       "already_configured": "This Signal Conditioner helper is already configured.",

@@ -70,6 +70,28 @@ def test_data_points_text_round_trip() -> None:
     assert format_data_points_text(points) == "38.68, 32.0\n79.89, 75.0"
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "1.5, 2.5",
+        "1.5 2.5",
+        "1.5\t2.5",
+        "1,5; 2,5",
+        "1,5 2,5",
+        "1,5 2.5",
+        "1.5;2.5",
+    ],
+)
+def test_data_points_text_separators(text: str) -> None:
+    """Comma, whitespace, and (for decimal commas) semicolon separators."""
+    assert parse_data_points_text(text) == ((1.5, 2.5),)
+
+
+def test_empty_data_points_error_says_so() -> None:
+    with pytest.raises(CalibrationError, match="no calibration points"):
+        parse_data_points_text("# nothing here")
+
+
 def test_rejects_malformed_data_point_text() -> None:
     """Each line must contain exactly one pair."""
     with pytest.raises(CalibrationError, match="line 2"):
