@@ -9,6 +9,7 @@ CONF_DATA_POINTS = "data_points"
 CONF_DATA_POINTS_TEXT = "data_points_text"
 CONF_DEGREE = "degree"
 CONF_HIDE_SOURCE = "hide_source"
+CONF_USE_ATTRIBUTE = "use_attribute"
 
 CONF_ENABLE_LIMITS = "enable_limits"
 CONF_ENABLE_CALIBRATION = "enable_calibration"
@@ -30,6 +31,7 @@ CONF_MODE = "mode"
 CONF_AVAILABILITY = "availability"
 CONF_FOLLOW_SOURCE = "follow_source"
 CONF_STALE_AFTER = "stale_after"
+CONF_INPUT_UNIT = "input_unit"
 
 
 WINDOW_OUTPUT_MEAN = "mean"

@@ -32,8 +32,10 @@ Source state or attribute
 
 ### Source
 
-- Source sensor
-- Optional source attribute
+- Source entity, of any domain: a sensor, or for example a climate or weather
+  entity when conditioning one of its attributes
+- Optional source attribute: turn on **Condition an attribute** and choose it
+  from the source's attributes on the next step
 - Optional output-name override; without one, the name is the source's name
   plus "(conditioned)", so the two are easy to tell apart
 
@@ -59,9 +61,34 @@ missing source).
 `hide_source` hides the source entity in the entity registry (not available with
 a source attribute). The source stays hidden across restarts and reloads, and is
 unhidden when the conditioner is deleted or disabled, when `hide_source` is
-turned off, or when a YAML conditioner switches to a different source. A source
+turned off, or when the conditioner switches to a different source. A source
 shared by several hiding conditioners stays hidden until none of them hides it,
 and a source you hid yourself is never unhidden.
+
+A UI conditioner hides its source once, like Home Assistant's own helpers: if
+you unhide the source afterwards, it stays visible. Turning `hide_source` off
+and on, changing the source, or disabling and re-enabling the conditioner hides
+it again. A YAML conditioner keeps its source hidden, as its YAML says.
+
+Reconfiguring a UI conditioner can also change its source, for example to
+replace a failed sensor. The conditioner keeps its entity, entity ID and
+history.
+
+### Units of limits and calibration
+
+Limits and calibration points are numbers in one unit: the source's unit when
+they were configured (the *input unit*). The config flow records it and shows it
+on those steps. YAML can set it with `input_unit: °F`; without it, the unit of
+the source's first reading is learned and kept.
+
+If the source later reports another unit (say °C after °F), readings are
+converted to the input unit before the limits and calibration and converted back
+afterwards, so the output still follows the source's unit and stays correct.
+Conversion uses the source's device class, as Home Assistant does: a source
+without one can't be converted, because °C and °F are also temperature-difference
+units. Readings in a unit that can't be converted are rejected and a Repairs
+issue explains the mismatch. Reconfiguring the conditioner, or setting
+`input_unit` in YAML, after re-entering the values in the new unit resolves it.
 
 ### Custom value limits
 
@@ -137,7 +164,9 @@ availability:
   value from before the restart (unless `follow_source` is on and the source is
   unavailable). `stale_after` applies to that restored value too. The first live
   reading replaces it at once, and the restored value is not averaged into a
-  window.
+  window. With `follow_source`, a source that is confirmed missing (when its
+  Repairs issue is raised, see below) makes the sensor unavailable, so an old
+  value never passes for a current one.
 - With a source attribute and `follow_source`, the sensor is unknown while the
   attribute is missing.
 
@@ -156,6 +185,16 @@ applies after a source is removed or its registry entry changes. An entity that
 is registered but temporarily unloaded, or whose state is `unknown` or
 `unavailable`, **does not** trigger a Repairs issue. Those are runtime conditions
 handled by the existing `availability` options.
+
+### Rejected readings
+
+A rejected reading keeps the value already in force, which suits an occasional
+glitch. When every reading has been rejected for 10 minutes (and at least three
+readings), a Repairs issue names the last reading and why it was rejected: for
+example a limit set in the wrong unit, or a source that reports text. It clears
+at the next accepted reading. The integration's diagnostics download (on the
+conditioner's page) shows the accepted and rejected counts and the last
+rejection.
 
 Repair issues identify the conditioner and source, describe the action needed,
 and clear automatically when the reference is corrected or the conditioner is

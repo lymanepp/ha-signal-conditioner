@@ -5,6 +5,12 @@ Ownership lives in the entity registry, not in memory: a source hidden with
 only on a real change (entry deleted or disabled, hide_source turned off, or
 the source replaced), never on a plain reload or shutdown. A source the user
 hid themselves is never touched.
+
+A UI conditioner hides its source once, like Home Assistant's own helpers, and
+records that in its options: if the user then unhides the source, it stays
+visible. Turning hide_source on again, changing the source, or disabling and
+re-enabling the conditioner hides it again. YAML is declarative, so a YAML
+conditioner keeps its source hidden.
 """
 
 from __future__ import annotations
@@ -19,6 +25,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_registry import RegistryEntryHider
 
 from .const import CONF_HIDE_SOURCE, DOMAIN
+
+# Entry option: this UI conditioner has hidden its current source.
+SOURCE_HIDDEN = "source_hidden"
 
 
 def _hidden_source(data: Mapping[str, Any]) -> str | None:
@@ -69,8 +78,10 @@ def async_update_hidden_source(
     the reloaded entry is set up.
     """
     old_source = _hidden_source(entry.data)
-    if old_source is not None and old_source != _hidden_source(new_data):
-        async_unhide_source(hass, old_source, entry.entry_id)
+    if old_source != _hidden_source(new_data):
+        if old_source is not None:
+            async_unhide_source(hass, old_source, entry.entry_id)
+        async_forget_hidden_source(hass, entry)
 
 
 @callback
@@ -78,3 +89,21 @@ def async_release_entry_source(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Unhide the source of an entry that is being deleted or disabled."""
     if (source := _hidden_source(entry.data)) is not None:
         async_unhide_source(hass, source, entry.entry_id)
+
+
+@callback
+def async_forget_hidden_source(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Hide the source again at the next setup (e.g. after re-enabling)."""
+    if entry.options.get(SOURCE_HIDDEN):
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, SOURCE_HIDDEN: False}
+        )
+
+
+@callback
+def async_mark_source_hidden(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Record that a UI conditioner has hidden its source."""
+    if not entry.options.get(SOURCE_HIDDEN):
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, SOURCE_HIDDEN: True}
+        )
