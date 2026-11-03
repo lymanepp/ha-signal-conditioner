@@ -45,7 +45,12 @@ changes its unit (for example °F to °C), the conditioner switches too, restart
 any time window so readings in different units are never averaged, and
 publishes the new reading at once. The device class is inherited only together
 with the unit, so an explicit unit (say `%` for a calibrated voltage source) is
-never paired with the source's device class. The config flow exposes validated
+never paired with the source's device class. A counter's `total` or
+`total_increasing` state class is not inherited when calibration or a `mean`
+window changes its readings: a calibrated counter can decrease, which long-term
+statistics read as a meter reset, and a mean blends readings from before and
+after a reset. Set `state_class` explicitly to keep it anyway. A `total` keeps
+the source's `last_reset`. The config flow exposes validated
 overrides for all four values. Explicit overrides win over inherited metadata;
 attribute-based sources inherit none of the parent entity metadata unless an
 override is configured. The same fields are available when reconfiguring an

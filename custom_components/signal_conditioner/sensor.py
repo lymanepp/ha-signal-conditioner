@@ -9,6 +9,7 @@ import time
 from typing import Any, cast
 
 from homeassistant.components.sensor import (
+    ATTR_LAST_RESET,
     ATTR_STATE_CLASS,
     RestoreSensor,
     SensorDeviceClass,
@@ -57,7 +58,13 @@ from .const import (
     CONF_STATE_CLASS,
     CONF_VALUE_LIMITS,
 )
-from .pipeline import ConditioningPipeline, Converter, Disposition, PipelineResult
+from .pipeline import (
+    ConditioningPipeline,
+    Converter,
+    Disposition,
+    PipelineResult,
+    WindowOutput,
+)
 from .rejections import RejectionMonitor
 from .source_health import SourceReferenceMonitor
 from .source_hiding import SOURCE_HIDDEN, async_hide_source, async_mark_source_hidden
@@ -65,6 +72,8 @@ from .units import async_clear_unit_mismatch, async_report_unit_mismatch, unit_c
 from .windows import next_window_end
 
 _LOGGER = logging.getLogger(__name__)
+
+_COUNTER_CLASSES = (SensorStateClass.TOTAL, SensorStateClass.TOTAL_INCREASING)
 
 
 async def async_setup_entry(
@@ -151,6 +160,14 @@ class SignalConditionerSensor(RestoreSensor):
         self._configured_device_class: str | None = config.get(CONF_DEVICE_CLASS)
         self._configured_state_class: str | None = config.get(CONF_STATE_CLASS)
         self._configured_icon: str | None = config.get(CONF_ICON)
+        # A calibrated or averaged counter is no longer the meter's reading:
+        # calibration can make it decrease, which statistics read as a meter
+        # reset, and a mean blends readings from before and after a reset.
+        pipeline_config = self._pipeline.config
+        self._changes_counter_readings = pipeline_config.calibration is not None or (
+            pipeline_config.window_duration > 0
+            and pipeline_config.window_output is WindowOutput.MEAN
+        )
         # Must be set before _apply_metadata reads it to detect a unit change.
         self._attr_native_unit_of_measurement = None
         self._apply_metadata({})
@@ -549,9 +566,18 @@ class SignalConditionerSensor(RestoreSensor):
         unit_changed = unit != self._attr_native_unit_of_measurement
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = cast(SensorDeviceClass | None, device_class)
-        self._attr_state_class = cast(
-            SensorStateClass | None,
-            self._configured_state_class or attributes.get(ATTR_STATE_CLASS),
+        state_class = self._configured_state_class
+        if state_class is None:
+            state_class = attributes.get(ATTR_STATE_CLASS)
+            if self._changes_counter_readings and state_class in _COUNTER_CLASSES:
+                state_class = None
+        self._attr_state_class = cast(SensorStateClass | None, state_class)
+        # A total's statistics need its reset time, as the source reports it.
+        last_reset = attributes.get(ATTR_LAST_RESET)
+        self._attr_last_reset = (
+            dt_util.parse_datetime(str(last_reset))
+            if state_class == SensorStateClass.TOTAL and last_reset
+            else None
         )
         self._attr_icon = self._configured_icon or attributes.get(ATTR_ICON)
         return unit_changed

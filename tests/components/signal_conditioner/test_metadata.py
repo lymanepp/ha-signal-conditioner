@@ -14,6 +14,7 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant
+import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -121,3 +122,70 @@ async def test_overrides_win_over_source_changes(hass: HomeAssistant) -> None:
     )
     await _set(hass, "71", CELSIUS)
     assert _attrs(hass) == ("71.0", "°F", "temperature")
+
+
+ENERGY = {
+    ATTR_UNIT_OF_MEASUREMENT: "kWh",
+    ATTR_DEVICE_CLASS: "energy",
+    "state_class": "total_increasing",
+}
+
+
+def _state_class(hass: HomeAssistant) -> object:
+    state = hass.states.get(TARGET)
+    assert state is not None
+    return state.attributes.get("state_class")
+
+
+@pytest.mark.parametrize(
+    ("stages", "expected"),
+    [
+        ({}, "total_increasing"),
+        ({CONF_VALUE_LIMITS: {CONF_MAXIMUM: 1e6}}, "total_increasing"),
+        ({CONF_WINDOW: {CONF_DURATION: 60, "output": "latest"}}, "total_increasing"),
+        ({CONF_WINDOW: {CONF_DURATION: 60}}, None),
+        ({"calibration": {"data_points": [[0, 100], [100, 0]]}}, None),
+        (
+            {
+                "calibration": {"data_points": [[0, 100], [100, 0]]},
+                "state_class": "total_increasing",
+            },
+            "total_increasing",  # an explicit choice wins
+        ),
+    ],
+    ids=["plain", "limits", "latest", "mean", "calibration", "explicit"],
+)
+async def test_counter_state_class_is_inherited_only_when_unchanged(
+    hass: HomeAssistant, stages: dict, expected: object
+) -> None:
+    """A changed counter could decrease, which statistics read as a reset."""
+    await _set(hass, "10", ENERGY)
+    await _setup(hass, **stages)
+    assert _state_class(hass) == expected
+
+
+async def test_measurement_is_still_inherited_with_calibration(
+    hass: HomeAssistant,
+) -> None:
+    await _set(hass, "70", {**FAHRENHEIT, "state_class": "measurement"})
+    await _setup(hass, calibration={"data_points": [[0, 0], [100, 100]]})
+    assert _state_class(hass) == "measurement"
+
+
+async def test_total_keeps_the_source_last_reset(hass: HomeAssistant) -> None:
+    reset = "2026-11-01T00:00:00+00:00"
+    await _set(
+        hass,
+        "3",
+        {
+            ATTR_UNIT_OF_MEASUREMENT: "kWh",
+            ATTR_DEVICE_CLASS: "energy",
+            "state_class": "total",
+            "last_reset": reset,
+        },
+    )
+    await _setup(hass)
+    state = hass.states.get(TARGET)
+    assert state is not None
+    assert state.attributes["state_class"] == "total"
+    assert state.attributes["last_reset"] == reset
