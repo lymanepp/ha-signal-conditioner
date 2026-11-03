@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 import logging
-import math
 import time
 from typing import Any, cast
 
@@ -53,6 +52,7 @@ from .const import CONF_HIDE_SOURCE, CONF_PRECISION, CONF_ROUNDING, CONF_STATE_C
 from .pipeline import ConditioningPipeline, Disposition
 from .source_health import SourceReferenceMonitor
 from .source_hiding import async_hide_source
+from .windows import next_window_end
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -304,16 +304,19 @@ class SignalConditionerSensor(RestoreSensor):
 
     @callback
     def _schedule_window(self, after: datetime) -> None:
-        """Schedule the next window end on a wall-clock boundary.
+        """Schedule the next window end on a local clock boundary.
 
-        Boundaries are whole multiples of the duration since the Unix epoch
-        (UTC), so a 60 s window ends on the minute, a 1-hour window on the
-        hour, and reloads or restarts don't shift them.
+        A 60 s window ends on the minute, a 1-hour window on the hour and a
+        1-day window at local midnight; reloads and restarts don't shift them.
         """
-        duration = self._pipeline.config.window_duration
-        boundary = (math.floor(after.timestamp() / duration) + 1) * duration
         self._cancel_window = async_track_point_in_utc_time(
-            self.hass, self._async_window_end, dt_util.utc_from_timestamp(boundary)
+            self.hass,
+            self._async_window_end,
+            next_window_end(
+                after,
+                self._pipeline.config.window_duration,
+                dt_util.get_default_time_zone(),
+            ),
         )
 
     @callback

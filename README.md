@@ -93,10 +93,15 @@ window:
   output: mean
 ```
 
-A configured instance publishes once at each interval boundary. Boundaries are
-on the wall clock, at whole multiples of the duration (UTC): a 60-second window
-ends on the minute and a 5-minute window at :00, :05, :10, and so on. Reloads and
-restarts don't shift them; the first interval after one is just shorter. The source is treated as a sample-and-hold signal: each accepted
+A configured instance publishes once at each interval boundary. Boundaries
+follow the local clock and restart at local midnight: a 60-second window ends on
+the minute, a 5-minute window at :00, :05, :10, and so on, a 1-hour window on the
+hour, and a 1-day window at local midnight. Reloads and restarts don't shift
+them; the first interval after one is just shorter. A duration that doesn't
+divide the day (say 7 hours) has a shorter last window before midnight. On a
+daylight saving day, a window longer than an hour that spans the change is an
+hour shorter or longer, so the next ones still end at the usual clock times.
+The source is treated as a sample-and-hold signal: each accepted
 calibrated reading stays in force until the next one, including across interval
 boundaries, so a quiet interval publishes the value still in force.
 
