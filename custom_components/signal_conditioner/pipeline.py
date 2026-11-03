@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 import math
@@ -10,6 +10,8 @@ import math
 from .calibration import CalibrationError, PolynomialCalibration
 
 MAX_WINDOW_SECONDS = 86400
+
+type Converter = Callable[[float], float]
 
 
 class PipelineConfigurationError(ValueError):
@@ -97,10 +99,18 @@ class ConditioningPipeline:
         self._area = 0.0
         self._covered = 0.0
 
-    def condition(self, source_value: object) -> PipelineResult:
+    def condition(  # noqa: PLR0911
+        self,
+        source_value: object,
+        convert_in: Converter | None = None,
+        convert_out: Converter | None = None,
+    ) -> PipelineResult:
         """Validate, limit, and calibrate one reading without holding it.
 
-        Returns PUBLISH with the conditioned value, or REJECT with a reason.
+        ``convert_in`` brings the reading into the unit the limits and
+        calibration were written in; ``convert_out`` converts the result to
+        the published unit. Returns PUBLISH with the conditioned value, or
+        REJECT with a reason.
         """
         try:
             raw_value = float(source_value)  # type: ignore[arg-type]
@@ -112,6 +122,12 @@ class ConditioningPipeline:
             return PipelineResult(
                 Disposition.REJECT, reason="source value must be finite"
             )
+        if convert_in is not None:
+            raw_value = convert_in(raw_value)
+            if not math.isfinite(raw_value):
+                return PipelineResult(
+                    Disposition.REJECT, reason="converted value must be finite"
+                )
         clamp = self.config.limit_mode is LimitMode.CLAMP
         if self.config.minimum is not None and raw_value < self.config.minimum:
             if not clamp:
@@ -128,11 +144,23 @@ class ConditioningPipeline:
                 conditioned = self.config.calibration.evaluate(conditioned)
             except CalibrationError as err:
                 return PipelineResult(Disposition.REJECT, reason=str(err))
+        if convert_out is not None:
+            conditioned = convert_out(conditioned)
+        if not math.isfinite(conditioned):
+            return PipelineResult(
+                Disposition.REJECT, reason="converted value must be finite"
+            )
         return PipelineResult(Disposition.PUBLISH, value=conditioned)
 
-    def process(self, source_value: object, timestamp: float = 0.0) -> PipelineResult:
+    def process(
+        self,
+        source_value: object,
+        timestamp: float = 0.0,
+        convert_in: Converter | None = None,
+        convert_out: Converter | None = None,
+    ) -> PipelineResult:
         """Condition one source reading received at ``timestamp``."""
-        result = self.condition(source_value)
+        result = self.condition(source_value, convert_in, convert_out)
         if result.disposition is Disposition.REJECT:
             return result
         assert result.value is not None
