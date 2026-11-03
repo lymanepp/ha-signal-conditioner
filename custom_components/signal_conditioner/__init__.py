@@ -46,6 +46,7 @@ from .const import (
     CONF_DURATION,
     CONF_FOLLOW_SOURCE,
     CONF_HIDE_SOURCE,
+    CONF_INPUT_UNIT,
     CONF_MAXIMUM,
     CONF_MINIMUM,
     CONF_MODE,
@@ -71,6 +72,7 @@ from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
 from .rejections import rejection_issue_id
 from .source_health import source_issue_id
 from .source_hiding import async_release_entry_source
+from .units import async_clear_unit_mismatch
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -155,6 +157,9 @@ SIGNAL_CONDITIONER_SCHEMA = vol.All(
             vol.Optional(CONF_HIDE_SOURCE, default=False): cv.boolean,
             vol.Optional(CONF_NAME): cv.string,
             vol.Optional(CONF_UNIT_OF_MEASUREMENT): cv.string,
+            # Unit the limits and calibration are written in; learned from
+            # the source's first reading when omitted.
+            vol.Optional(CONF_INPUT_UNIT): cv.string,
             vol.Optional(CONF_DEVICE_CLASS): vol.In(
                 [device_class.value for device_class in SensorDeviceClass]
             ),
@@ -398,4 +403,5 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Clean up the Repairs issues and source hiding of a deleted entry."""
     async_delete_issue(hass, DOMAIN, source_issue_id(entry.entry_id))
     async_delete_issue(hass, DOMAIN, rejection_issue_id(entry.entry_id))
+    async_clear_unit_mismatch(hass, entry.entry_id)
     async_release_entry_source(hass, entry)

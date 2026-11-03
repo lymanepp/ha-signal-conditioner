@@ -92,7 +92,8 @@ async def test_rejected_reading_after_unit_change_shows_unknown(
     await _set(hass, "70", FAHRENHEIT)
     await _setup(hass, **{CONF_VALUE_LIMITS: {CONF_MAXIMUM: 100}})
 
-    await _set(hass, "300", {**FAHRENHEIT, ATTR_UNIT_OF_MEASUREMENT: "K"})
+    # 320 K is 116 °F: over the maximum, which is in °F.
+    await _set(hass, "320", {**FAHRENHEIT, ATTR_UNIT_OF_MEASUREMENT: "K"})
     assert _attrs(hass) == (STATE_UNKNOWN, "K", "temperature")
 
 

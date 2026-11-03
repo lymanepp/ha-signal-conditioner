@@ -166,3 +166,21 @@ async def test_diagnostics_show_reading_counters(hass: HomeAssistant) -> None:
     assert readings["last_rejection"]["reason"] == "source value is not numeric"
     assert diagnostics["entry"]["data"][CONF_SOURCE] == SOURCE
     assert diagnostics["source_state"]["state"] == "abc"
+
+
+async def test_unit_mismatch_does_not_also_raise_the_rejection_issue(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A unit mismatch has its own Repairs issue."""
+    hass.states.async_set("sensor.raw", "50", {"unit_of_measurement": "%"})
+    entry = await _setup(
+        hass, **{CONF_VALUE_LIMITS: {"maximum": 100}, "input_unit": "%"}
+    )
+    for value in ("0.1", "0.2", "0.3", "0.4"):
+        await _tick(hass, freezer, 300)
+        hass.states.async_set("sensor.raw", value, {"unit_of_measurement": "ratio"})
+        await hass.async_block_till_done()
+    assert _issue(hass, entry) is None
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"unit_mismatch_{entry.entry_id}")
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    assert diagnostics["sensor"]["readings"]["rejected"] == 4

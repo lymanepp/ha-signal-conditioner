@@ -64,10 +64,18 @@ class RejectionMonitor:
         self._reported = False
 
     @callback
-    def record_rejected(self, value: object, reason: str) -> None:
-        """Count a rejected reading; report it once a streak has lasted."""
+    def record_rejected(
+        self, value: object, reason: str, *, reported_elsewhere: bool = False
+    ) -> None:
+        """Count a rejected reading; report it once a streak has lasted.
+
+        ``reported_elsewhere``: the cause already has its own Repairs issue
+        (a unit mismatch), so it is counted but doesn't raise this one.
+        """
         self.rejected += 1
         self._last = _Rejection(reason, str(value), dt_util.utcnow())
+        if reported_elsewhere:
+            return
         now = time.monotonic()
         if self._streak_started is None:
             self._streak_started = now
