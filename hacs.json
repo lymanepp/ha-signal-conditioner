@@ -1,4 +1,6 @@
 {
   "name": "Signal Conditioner",
-  "homeassistant": "2026.10.0"
+  "homeassistant": "2026.10.0",
+  "filename": "signal_conditioner.zip",
+  "zip_release": true
 }
