@@ -7,11 +7,7 @@ from datetime import timedelta
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import (
-    DOMAIN as SENSOR_DOMAIN,
-    SensorDeviceClass,
-    SensorStateClass,
-)
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import (
     SOURCE_IMPORT,
     ConfigEntry,
@@ -29,7 +25,10 @@ from homeassistant.const import (
     CONF_UNIT_OF_MEASUREMENT,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
+    AttributeSelector,
+    AttributeSelectorConfig,
     BooleanSelector,
     DurationSelector,
     DurationSelectorConfig,
@@ -75,6 +74,7 @@ from .const import (
     CONF_ROUNDING,
     CONF_STALE_AFTER,
     CONF_STATE_CLASS,
+    CONF_USE_ATTRIBUTE,
     CONF_VALUE_LIMITS,
     CONF_WINDOW,
     DEFAULT_DEGREE,
@@ -125,17 +125,21 @@ def _suggested_optional(key: str, defaults: Mapping[str, Any]) -> vol.Optional:
 
 
 def _source_schema(
-    defaults: Mapping[str, Any], *, reconfigure: bool = False
+    defaults: Mapping[str, Any], *, exclude_entities: list[str] | None = None
 ) -> vol.Schema:
-    fields: dict[vol.Marker, Any] = {}
-    if not reconfigure:
-        fields[vol.Required(CONF_SOURCE, default=defaults.get(CONF_SOURCE))] = (
-            EntitySelector(EntitySelectorConfig(domain=[SENSOR_DOMAIN]))
-        )
-        attribute_key = vol.Optional(
-            CONF_ATTRIBUTE, default=defaults.get(CONF_ATTRIBUTE, "")
-        )
-        fields[attribute_key] = TextSelector()
+    # Any domain: numeric attributes mostly live on climate, weather, fan...
+    source_selector = EntitySelector(
+        EntitySelectorConfig(exclude_entities=exclude_entities or [])
+    )
+    fields: dict[vol.Marker, Any] = {
+        vol.Required(CONF_SOURCE, default=defaults.get(CONF_SOURCE)): source_selector,
+        vol.Optional(
+            CONF_USE_ATTRIBUTE,
+            default=bool(
+                defaults.get(CONF_USE_ATTRIBUTE, bool(defaults.get(CONF_ATTRIBUTE)))
+            ),
+        ): BooleanSelector(),
+    }
     fields.update(
         {
             vol.Optional(
@@ -287,6 +291,7 @@ def _normalize_source(
     enabled = {
         key
         for key in (
+            CONF_USE_ATTRIBUTE,
             CONF_ENABLE_LIMITS,
             CONF_ENABLE_CALIBRATION,
             CONF_ENABLE_WINDOW,
@@ -308,15 +313,8 @@ def _normalize_source(
         name = f"{name} (conditioned)"
     data[CONF_NAME] = name
 
-    attribute = str(data.get(CONF_ATTRIBUTE, "")).strip()
-    if attribute and data.get(CONF_HIDE_SOURCE):
-        raise PipelineConfigurationError(
-            "attribute and hide_source cannot be used together"
-        )
-    if attribute:
-        data[CONF_ATTRIBUTE] = attribute
-    else:
-        data.pop(CONF_ATTRIBUTE, None)
+    # The attribute itself is chosen on the next step.
+    data.pop(CONF_ATTRIBUTE, None)
 
     for key in _METADATA_KEYS:
         value = str(data.get(key, "")).strip()
@@ -373,6 +371,33 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
             self._reconfigure_entry = entry
             self._defaults = entry.data
         return await self._async_source("reconfigure", user_input)
+
+    async def async_step_attribute(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the source attribute from those the source has."""
+        source = self._flow_data[CONF_SOURCE]
+        if user_input is not None:
+            attribute = str(user_input.get(CONF_ATTRIBUTE, "")).strip()
+            if attribute:
+                self._flow_data[CONF_ATTRIBUTE] = attribute
+                self._completed.add(CONF_USE_ATTRIBUTE)
+                return await self._next_step()
+        default = None
+        if self._defaults.get(CONF_SOURCE) == source:
+            default = self._defaults.get(CONF_ATTRIBUTE)
+        key = (
+            vol.Required(CONF_ATTRIBUTE, default=default)
+            if default
+            else vol.Required(CONF_ATTRIBUTE)
+        )
+        return self.async_show_form(
+            step_id="attribute",
+            data_schema=vol.Schema(
+                {key: AttributeSelector(AttributeSelectorConfig(entity_id=source))}
+            ),
+            description_placeholders={"source": source},
+        )
 
     async def async_step_value_limits(
         self, user_input: dict[str, Any] | None = None
@@ -540,32 +565,44 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            source_input = dict(user_input)
-            if self._reconfigure_entry is not None:
-                source_input[CONF_SOURCE] = self._reconfigure_entry.data[CONF_SOURCE]
-                if CONF_ATTRIBUTE in self._reconfigure_entry.data:
-                    source_input[CONF_ATTRIBUTE] = self._reconfigure_entry.data[
-                        CONF_ATTRIBUTE
-                    ]
-            try:
-                self._flow_data, self._enabled = _normalize_source(
-                    self.hass, source_input
-                )
-            except (TypeError, ValueError):  # includes PipelineConfigurationError
-                errors["base"] = "invalid_configuration"
+            if user_input.get(CONF_USE_ATTRIBUTE) and user_input.get(CONF_HIDE_SOURCE):
+                # The source entity still matters when one attribute is used.
+                errors["base"] = "hide_source_with_attribute"
             else:
-                self._completed.clear()
-                return await self._next_step()
+                try:
+                    self._flow_data, self._enabled = _normalize_source(
+                        self.hass, user_input
+                    )
+                except (TypeError, ValueError):  # incl. PipelineConfigurationError
+                    errors["base"] = "invalid_configuration"
+                else:
+                    self._completed.clear()
+                    return await self._next_step()
         return self.async_show_form(
             step_id=step_id,
             data_schema=_source_schema(
-                user_input or self._defaults,
-                reconfigure=self._reconfigure_entry is not None,
+                user_input or self._defaults, exclude_entities=self._own_entities()
             ),
             errors=errors,
         )
 
+    def _own_entities(self) -> list[str]:
+        """A conditioner can't be its own source."""
+        if self._reconfigure_entry is None:
+            return []
+        return [
+            entity.entity_id
+            for entity in er.async_entries_for_config_entry(
+                er.async_get(self.hass), self._reconfigure_entry.entry_id
+            )
+        ]
+
     async def _next_step(self) -> ConfigFlowResult:
+        if (
+            CONF_USE_ATTRIBUTE in self._enabled
+            and CONF_USE_ATTRIBUTE not in self._completed
+        ):
+            return await self.async_step_attribute()
         if (
             CONF_ENABLE_LIMITS in self._enabled
             and CONF_ENABLE_LIMITS not in self._completed
@@ -598,9 +635,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Invalid Signal Conditioner configuration")
             return self.async_show_form(
                 step_id="reconfigure" if self._reconfigure_entry else "user",
-                data_schema=_source_schema(
-                    data, reconfigure=self._reconfigure_entry is not None
-                ),
+                data_schema=_source_schema(data, exclude_entities=self._own_entities()),
                 errors={"base": "invalid_configuration"},
             )
         if self._reconfigure_entry:
