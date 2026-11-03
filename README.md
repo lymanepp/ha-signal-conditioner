@@ -32,8 +32,10 @@ Source state or attribute
 
 ### Source
 
-- Source sensor
-- Optional source attribute
+- Source entity, of any domain: a sensor, or for example a climate or weather
+  entity when conditioning one of its attributes
+- Optional source attribute: turn on **Condition an attribute** and choose it
+  from the source's attributes on the next step
 - Optional output-name override; without one, the name is the source's name
   plus "(conditioned)", so the two are easy to tell apart
 
@@ -59,9 +61,18 @@ missing source).
 `hide_source` hides the source entity in the entity registry (not available with
 a source attribute). The source stays hidden across restarts and reloads, and is
 unhidden when the conditioner is deleted or disabled, when `hide_source` is
-turned off, or when a YAML conditioner switches to a different source. A source
+turned off, or when the conditioner switches to a different source. A source
 shared by several hiding conditioners stays hidden until none of them hides it,
 and a source you hid yourself is never unhidden.
+
+A UI conditioner hides its source once, like Home Assistant's own helpers: if
+you unhide the source afterwards, it stays visible. Turning `hide_source` off
+and on, changing the source, or disabling and re-enabling the conditioner hides
+it again. A YAML conditioner keeps its source hidden, as its YAML says.
+
+Reconfiguring a UI conditioner can also change its source, for example to
+replace a failed sensor. The conditioner keeps its entity, entity ID and
+history.
 
 ### Units of limits and calibration
 

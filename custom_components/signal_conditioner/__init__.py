@@ -71,7 +71,7 @@ from .const import (
 from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
 from .rejections import rejection_issue_id
 from .source_health import source_issue_id
-from .source_hiding import async_release_entry_source
+from .source_hiding import async_forget_hidden_source, async_release_entry_source
 from .units import async_clear_unit_mismatch
 
 _LOGGER = logging.getLogger(__name__)
@@ -396,6 +396,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # conditioner should not keep its source out of sight.
     if unloaded and entry.disabled_by is not None:
         async_release_entry_source(hass, entry)
+        async_forget_hidden_source(hass, entry)
     return unloaded
 
 

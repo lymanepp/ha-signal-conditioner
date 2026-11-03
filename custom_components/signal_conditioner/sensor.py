@@ -61,7 +61,7 @@ from .const import (
 from .pipeline import ConditioningPipeline, Converter, Disposition, PipelineResult
 from .rejections import RejectionMonitor
 from .source_health import SourceReferenceMonitor
-from .source_hiding import async_hide_source
+from .source_hiding import SOURCE_HIDDEN, async_hide_source, async_mark_source_hidden
 from .units import async_clear_unit_mismatch, async_report_unit_mismatch, unit_converter
 
 _LOGGER = logging.getLogger(__name__)
@@ -244,8 +244,18 @@ class SignalConditionerSensor(RestoreSensor):
     @callback
     def _ensure_source_hidden(self) -> None:
         """Hide the source once it is registered (it may register late)."""
-        if self._hide_source and not self._source_hidden:
-            self._source_hidden = async_hide_source(self.hass, self._source_entity_id)
+        if not self._hide_source or self._source_hidden:
+            return
+        if self._entry.source != SOURCE_IMPORT and self._entry.options.get(
+            SOURCE_HIDDEN
+        ):
+            # Hidden once already: if the user has unhidden it since, that
+            # choice stands.
+            self._source_hidden = True
+            return
+        self._source_hidden = async_hide_source(self.hass, self._source_entity_id)
+        if self._source_hidden and self._entry.source != SOURCE_IMPORT:
+            async_mark_source_hidden(self.hass, self._entry)
 
     @callback
     def _async_source_state_listener(self, event: Event[EventStateChangedData]) -> None:

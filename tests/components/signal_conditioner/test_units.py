@@ -208,7 +208,6 @@ def _source_input(**overrides: object) -> dict[str, Any]:
     return {
         CONF_NAME: "Attic",
         CONF_SOURCE: SOURCE,
-        "attribute": "",
         CONF_HIDE_SOURCE: False,
         CONF_UNIT_OF_MEASUREMENT: "",
         CONF_DEVICE_CLASS: "",
@@ -265,7 +264,7 @@ async def test_reconfigure_input_unit(
     entry.add_to_hass(hass)
     result = await entry.start_reconfigure_flow(hass)
     source_input = _source_input()
-    del source_input[CONF_SOURCE], source_input["attribute"]
+    del source_input[CONF_SOURCE]
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], source_input
     )
