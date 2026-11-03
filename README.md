@@ -20,7 +20,7 @@ The pipeline runs in this order:
 ```text
 Source state or attribute
   → unknown/unavailable: mirrored by default (see Availability)
-  → reject missing, nonnumeric, NaN, and infinity
+  → reject missing, nonnumeric (including true/false), NaN, and infinity
   → optional minimum/maximum: reject or clamp
   → optional calibration
   → optional fixed time window: time-weighted mean or latest
@@ -147,6 +147,9 @@ The first value is never delayed by the window: at setup, and after any gap
 (unavailable, unknown, or stale source), the first valid reading is published at
 once.
 
+The duration is at least 1 second and at most 24 hours. A value that hasn't
+changed since the last publication isn't written again at the boundary.
+
 Omit `window` to publish every accepted reading immediately.
 
 ### Availability
@@ -246,8 +249,7 @@ use **Developer Tools → Actions → Signal Conditioner: Reload**
 their entire configuration (including removing omitted pipeline stages); deleted or
 renamed keys remove the old YAML-owned entry and entity.
 
-Only YAML-imported entries are reconciled. UI-created entries are never modified,
-even if a YAML key collides with a UI entry's unique ID (the collision is logged).
+Only YAML-imported entries are reconciled. UI-created entries are never modified.
 The YAML is validated before a reload changes any entries. Failed validation
 preserves the existing configuration; an event named
 `event_signal_conditioner_reloaded` is fired after a successful reload.

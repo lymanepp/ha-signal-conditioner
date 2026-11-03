@@ -21,6 +21,7 @@ from homeassistant.const import (
     SERVICE_RELOAD,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import (
     config_validation as cv,
     entity_registry as er,
@@ -68,7 +69,7 @@ from .const import (
     WINDOW_OUTPUT_LATEST,
     WINDOW_OUTPUT_MEAN,
 )
-from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
+from .pipeline import MAX_WINDOW_SECONDS, MIN_WINDOW_SECONDS, PipelineConfigurationError
 from .rejections import rejection_issue_id
 from .source_health import source_issue_id
 from .source_hiding import async_forget_hidden_source, async_release_entry_source
@@ -104,8 +105,9 @@ def _validate_signal_conditioner(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+# At least a second: a window writes state at every boundary.
 _positive_window = vol.All(
-    vol.Coerce(float), vol.Range(min=0.001, max=MAX_WINDOW_SECONDS)
+    vol.Coerce(float), vol.Range(min=MIN_WINDOW_SECONDS, max=MAX_WINDOW_SECONDS)
 )
 
 VALUE_LIMITS_SCHEMA = vol.Schema(
@@ -313,12 +315,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             yaml = _validate_yaml(reloaded_config.get(DOMAIN))
             _async_report_invalid_yaml(hass, yaml)
             if yaml.invalid:
-                raise vol.Invalid(
-                    "Invalid Signal Conditioner YAML, nothing was changed: "
-                    + "; ".join(
-                        f"{key if key is not None else DOMAIN}: {error}"
-                        for key, error in yaml.invalid.items()
-                    )
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_yaml",
+                    translation_placeholders={
+                        "errors": "; ".join(
+                            f"{key if key is not None else DOMAIN}: {error}"
+                            for key, error in yaml.invalid.items()
+                        )
+                    },
                 )
 
             startup_tasks, runtime.startup_tasks = runtime.startup_tasks, []

@@ -5,11 +5,12 @@ from unittest.mock import AsyncMock, patch
 from homeassistant.config_entries import SOURCE_IMPORT, SOURCE_USER
 from homeassistant.const import CONF_NAME, CONF_SOURCE
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.signal_conditioner import EVENT_YAML_RELOADED, vol
+from custom_components.signal_conditioner import EVENT_YAML_RELOADED
 from custom_components.signal_conditioner.const import DOMAIN
 
 
@@ -99,7 +100,7 @@ async def test_reload_invalid_yaml_preserves_entries_and_fires_no_event(
                 }
             },
         ),
-        pytest.raises(vol.Invalid),
+        pytest.raises(ServiceValidationError),
     ):
         await hass.services.async_call(DOMAIN, "reload", {}, blocking=True)
 
@@ -109,7 +110,7 @@ async def test_reload_invalid_yaml_preserves_entries_and_fires_no_event(
 
 
 async def test_yaml_collision_cannot_overwrite_a_ui_entry(hass: HomeAssistant) -> None:
-    """UI entries take precedence even if their unique ID equals a YAML key."""
+    """YAML never modifies a UI entry, whatever its unique ID."""
     ui = _entry("collision", SOURCE_USER)
     ui.add_to_hass(hass)
     original_data = dict(ui.data)
@@ -126,10 +127,10 @@ async def test_yaml_collision_cannot_overwrite_a_ui_entry(hass: HomeAssistant) -
         },
     )
     await hass.async_block_till_done()
-    entries = hass.config_entries.async_entries(DOMAIN)
-    assert len(entries) == 1
-    assert entries[0].source == SOURCE_USER
-    assert dict(entries[0].data) == original_data
+    # UI entries have had no unique ID since 1.1; even one with a matching
+    # ID (as tested here) is never modified by YAML.
+    assert dict(ui.data) == original_data
+    assert ui.source == SOURCE_USER
 
 
 async def test_reload_unchanged_yaml_does_not_update_entries(

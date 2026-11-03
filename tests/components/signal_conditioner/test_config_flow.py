@@ -332,7 +332,7 @@ async def test_out_of_range_stale_after_is_rejected(hass: HomeAssistant) -> None
         result["flow_id"], _plain_source(**{CONF_STALE_AFTER: {"hours": 25}})
     )
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "invalid_configuration"}
+    assert result["errors"] == {"base": "stale_after_out_of_range"}
 
 
 async def test_clamp_limit_mode_is_saved(hass: HomeAssistant) -> None:
@@ -480,3 +480,21 @@ async def test_invalid_combination_returns_to_first_form(hass: HomeAssistant) ->
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": "invalid_configuration"}
+
+
+async def test_value_limits_accept_decimals(hass: HomeAssistant) -> None:
+    result = await _source_step(hass, limits=True)
+    selector = result["data_schema"].schema[CONF_MINIMUM]
+    assert selector.config["step"] == "any"
+
+
+async def test_sub_second_stale_after_is_rejected(hass: HomeAssistant) -> None:
+    hass.states.async_set("sensor.raw", "1")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        _plain_source(**{CONF_STALE_AFTER: {"seconds": 0.5}}),
+    )
+    assert result["errors"] == {"base": "stale_after_out_of_range"}

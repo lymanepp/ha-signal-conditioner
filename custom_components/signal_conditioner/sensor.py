@@ -480,7 +480,10 @@ class SignalConditionerSensor(RestoreSensor):
         self._schedule_window(max(scheduled, dt_util.utcnow()))
         # Same clock as the readings, so a late tick can't misorder them.
         result = self._pipeline.flush(time.monotonic())
-        if result.disposition is Disposition.PUBLISH:
+        if result.disposition is Disposition.PUBLISH and not (
+            self._attr_available and result.value == self._attr_native_value
+        ):
+            # An unchanged value isn't written again at every boundary.
             self._publish(result.value)
 
     @callback

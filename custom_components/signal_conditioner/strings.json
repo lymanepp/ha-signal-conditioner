@@ -132,6 +132,7 @@
       "invalid_calibration": "Invalid calibration: {error}.",
       "limits_empty": "Enter a minimum, a maximum, or both.",
       "minimum_above_maximum": "The minimum cannot be greater than the maximum.",
+      "stale_after_out_of_range": "Unavailable-after must be between 1 second and 24 hours, or zero to turn it off.",
       "hide_source_with_attribute": "The source can't be hidden when conditioning one of its attributes."
     },
     "abort": {
@@ -175,6 +176,11 @@
     "unit_mismatch": {
       "title": "Signal Conditioner can't convert its source's unit",
       "description": "Signal Conditioner **{conditioner}** rejects every reading from `{source}`. The source now reports in {source_unit}, but the limits and calibration were entered in {input_unit}, and the two can't be converted into each other.\n\nChange the source back to {input_unit}, or update the limits and calibration for {source_unit} (for YAML, also set `input_unit: {source_unit}`). This issue clears once readings are accepted again."
+    }
+  },
+  "exceptions": {
+    "invalid_yaml": {
+      "message": "Invalid Signal Conditioner YAML, nothing was changed: {errors}"
     }
   }
 }

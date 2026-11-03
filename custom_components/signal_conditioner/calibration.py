@@ -189,28 +189,17 @@ def _horner(coefficients: Sequence[float], value: float) -> float:
     return result
 
 
-def _standard_coefficients(
-    mapped: Sequence[float], offset: float, scale: float
-) -> tuple[float, ...]:
-    """Expand sum c_k (offset + scale x)^k into plain powers of x."""
-    result = [0.0] * len(mapped)
-    for k, coefficient in enumerate(mapped):
-        for j in range(k + 1):
-            result[j] += coefficient * math.comb(k, j) * offset ** (k - j) * scale**j
-    return tuple(result)
-
-
 @dataclass(frozen=True, slots=True)
 class PolynomialCalibration:
     """A fitted polynomial calibration.
 
-    ``coefficients`` are in plain powers of the raw input, lowest first, for
-    display. Evaluation uses the better-conditioned mapped form instead.
+    Coefficients are kept for the input mapped onto [-1, 1], lowest power
+    first: expanding them into plain powers of the raw input would lose
+    precision for large inputs (e.g. ADC counts).
     """
 
     degree: int
     data_points: tuple[tuple[float, float], ...]
-    coefficients: tuple[float, ...]
     _mapped_coefficients: tuple[float, ...]
     _offset: float
     _scale: float
@@ -256,10 +245,9 @@ class PolynomialCalibration:
                 f"{degree} polynomial; use fewer degrees or more spread-out inputs"
             )
 
-        coefficients = _standard_coefficients(mapped, offset, scale)
-        if not all(math.isfinite(value) for value in (*mapped, *coefficients)):
+        if not all(math.isfinite(value) for value in mapped):
             raise CalibrationError("calibration coefficients must be finite")
-        return cls(degree, normalized, coefficients, tuple(mapped), offset, scale)
+        return cls(degree, normalized, tuple(mapped), offset, scale)
 
     def evaluate(self, source_value: float) -> float:
         """Transform one already-validated finite source value."""

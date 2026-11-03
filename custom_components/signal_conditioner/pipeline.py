@@ -10,6 +10,22 @@ import math
 from .calibration import CalibrationError, PolynomialCalibration
 
 MAX_WINDOW_SECONDS = 86400
+MIN_WINDOW_SECONDS = 1
+
+
+def _reading(value: object) -> float | None:
+    """Return a source value as a float, or None if it isn't a number.
+
+    Also rules out what float() accepts but a reading isn't: True/False (a
+    boolean attribute) and "1_000" (Python's digit separator).
+    """
+    if isinstance(value, bool) or (isinstance(value, str) and "_" in value):
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
 
 type Converter = Callable[[float], float]
 
@@ -61,9 +77,12 @@ class PipelineConfig:
             raise PipelineConfigurationError("minimum cannot exceed maximum")
         if self.precision is not None and self.precision < 0:
             raise PipelineConfigurationError("precision cannot be negative")
-        if not 0 <= self.window_duration <= MAX_WINDOW_SECONDS:
+        if self.window_duration != 0 and not (
+            MIN_WINDOW_SECONDS <= self.window_duration <= MAX_WINDOW_SECONDS
+        ):
             raise PipelineConfigurationError(
-                f"window duration must be between 0 and {MAX_WINDOW_SECONDS} seconds"
+                f"window duration must be between {MIN_WINDOW_SECONDS} and "
+                f"{MAX_WINDOW_SECONDS} seconds"
             )
 
 
@@ -112,9 +131,8 @@ class ConditioningPipeline:
         the published unit. Returns PUBLISH with the conditioned value, or
         REJECT with a reason.
         """
-        try:
-            raw_value = float(source_value)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
+        raw_value = _reading(source_value)
+        if raw_value is None:
             return PipelineResult(
                 Disposition.REJECT, reason="source value is not numeric"
             )

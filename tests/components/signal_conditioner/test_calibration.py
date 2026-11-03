@@ -21,7 +21,7 @@ def test_linear_calibration() -> None:
     calibration = PolynomialCalibration.fit([[1, 2], [2, 3]], degree=1)
 
     assert calibration.evaluate(4) == 5.0
-    assert calibration.coefficients == pytest.approx((1.0, 1.0))
+    assert calibration.evaluate(0) == pytest.approx(1.0)
 
 
 def test_quadratic_calibration_with_repeated_samples() -> None:
