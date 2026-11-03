@@ -63,6 +63,22 @@ turned off, or when a YAML conditioner switches to a different source. A source
 shared by several hiding conditioners stays hidden until none of them hides it,
 and a source you hid yourself is never unhidden.
 
+### Units of limits and calibration
+
+Limits and calibration points are numbers in one unit: the source's unit when
+they were configured (the *input unit*). The config flow records it and shows it
+on those steps. YAML can set it with `input_unit: °F`; without it, the unit of
+the source's first reading is learned and kept.
+
+If the source later reports another unit (say °C after °F), readings are
+converted to the input unit before the limits and calibration and converted back
+afterwards, so the output still follows the source's unit and stays correct.
+Conversion uses the source's device class, as Home Assistant does: a source
+without one can't be converted, because °C and °F are also temperature-difference
+units. Readings in a unit that can't be converted are rejected and a Repairs
+issue explains the mismatch. Reconfiguring the conditioner, or setting
+`input_unit` in YAML, after re-entering the values in the new unit resolves it.
+
 ### Custom value limits
 
 - Minimum valid value
