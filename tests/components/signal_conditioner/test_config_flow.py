@@ -37,6 +37,7 @@ from custom_components.signal_conditioner.const import (
     CONF_ROUNDING,
     CONF_STALE_AFTER,
     CONF_STATE_CLASS,
+    CONF_USE_ATTRIBUTE,
     CONF_VALUE_LIMITS,
     CONF_WINDOW,
     DOMAIN,
@@ -68,7 +69,6 @@ async def _source_step(
         {
             CONF_NAME: "",
             CONF_SOURCE: "sensor.garage_humidity_raw",
-            "attribute": "",
             CONF_HIDE_SOURCE: False,
             CONF_UNIT_OF_MEASUREMENT: "",
             CONF_DEVICE_CLASS: "",
@@ -139,7 +139,6 @@ async def test_metadata_overrides_are_saved(hass: HomeAssistant) -> None:
         {
             CONF_NAME: "Conditioned",
             CONF_SOURCE: "sensor.raw",
-            "attribute": "",
             CONF_HIDE_SOURCE: False,
             CONF_UNIT_OF_MEASUREMENT: "°F",
             CONF_DEVICE_CLASS: "temperature",
@@ -178,7 +177,6 @@ async def test_same_name_different_sources_do_not_collide(hass: HomeAssistant) -
             {
                 CONF_NAME: "Shared",
                 CONF_SOURCE: entity_id,
-                "attribute": "",
                 CONF_HIDE_SOURCE: False,
                 CONF_UNIT_OF_MEASUREMENT: "",
                 CONF_DEVICE_CLASS: "",
@@ -205,7 +203,7 @@ async def test_attribute_and_hide_source_are_incompatible(hass: HomeAssistant) -
         {
             CONF_NAME: "Attribute",
             CONF_SOURCE: "sensor.raw",
-            "attribute": "temperature",
+            CONF_USE_ATTRIBUTE: True,
             CONF_HIDE_SOURCE: True,
             CONF_UNIT_OF_MEASUREMENT: "",
             CONF_DEVICE_CLASS: "",
@@ -218,11 +216,11 @@ async def test_attribute_and_hide_source_are_incompatible(hass: HomeAssistant) -
         },
     )
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "invalid_configuration"}
+    assert result["errors"] == {"base": "hide_source_with_attribute"}
 
 
 async def test_reconfigure_keeps_source_identity(hass: HomeAssistant) -> None:
-    """Reconfiguration changes behavior, not the entry's source identity."""
+    """Reconfiguring without touching the source keeps it."""
     hass.states.async_set("sensor.original", "5")
     entry = ConfigEntry(
         version=1,
@@ -249,10 +247,6 @@ async def test_reconfigure_keeps_source_identity(hass: HomeAssistant) -> None:
             "entry_id": entry.entry_id,
         },
     )
-    schema_keys = {marker.schema for marker in result["data_schema"].schema}
-    assert CONF_SOURCE not in schema_keys
-    assert "attribute" not in schema_keys
-
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -277,7 +271,6 @@ def _plain_source(**extra: object) -> dict:
     return {
         CONF_NAME: "Plain",
         CONF_SOURCE: "sensor.raw",
-        "attribute": "",
         CONF_HIDE_SOURCE: False,
         CONF_UNIT_OF_MEASUREMENT: "",
         CONF_DEVICE_CLASS: "",
