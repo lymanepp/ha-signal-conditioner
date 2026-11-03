@@ -6,9 +6,9 @@
         "title": "Create a conditioned sensor",
         "description": "Choose the source and explicitly select only the conditioning behaviors to include.",
         "data": {
-          "source": "Source sensor",
+          "source": "Source entity",
+          "use_attribute": "Condition an attribute",
           "name": "Name override",
-          "attribute": "Source attribute",
           "enable_limits": "Apply custom value limits",
           "enable_calibration": "Calibrate values",
           "enable_rounding": "Round output values",
@@ -22,8 +22,9 @@
           "stale_after": "Unavailable after no reports for"
         },
         "data_description": {
+          "source": "Any entity with numeric readings, for example a sensor, or a climate entity when conditioning one of its attributes.",
+          "use_attribute": "Condition one of the source's attributes instead of its state. You choose the attribute on the next step.",
           "name": "Leave blank to derive the name from the source.",
-          "attribute": "Leave blank to condition the source state.",
           "enable_limits": "Configure an optional minimum and/or maximum valid value.",
           "enable_calibration": "Correct readings using raw and corrected value pairs.",
           "enable_rounding": "Round the final output to a chosen number of decimal places.",
@@ -32,7 +33,7 @@
           "device_class": "Leave blank to inherit it from a state-based source.",
           "state_class": "Leave blank to inherit it from a state-based source.",
           "icon": "Leave blank to inherit it from a state-based source.",
-          "hide_source": "Hide the source entity in Home Assistant after creating this conditioned sensor. Cannot be used when conditioning an attribute.",
+          "hide_source": "Hide the source entity after creating this conditioned sensor. If you unhide it later, it stays visible. Cannot be used when conditioning an attribute.",
           "follow_source": "When on, this sensor is unavailable or unknown whenever the source is. When off, the last value is kept, as the original Calibration integration did.",
           "stale_after": "Optional. Mark this sensor unavailable when the source has not reported (changed or re-reported the same value) for this long. Leave blank or zero to disable."
         }
@@ -41,9 +42,9 @@
         "title": "Reconfigure Signal Conditioner",
         "description": "Change the source, metadata overrides, and conditioning behaviors. Blank metadata fields inherit from a state-based source.",
         "data": {
-          "source": "Source sensor",
+          "source": "Source entity",
+          "use_attribute": "Condition an attribute",
           "name": "Name override",
-          "attribute": "Source attribute",
           "enable_limits": "Apply custom value limits",
           "enable_calibration": "Calibrate values",
           "enable_rounding": "Round output values",
@@ -57,8 +58,9 @@
           "stale_after": "Unavailable after no reports for"
         },
         "data_description": {
+          "source": "Any entity with numeric readings, for example a sensor, or a climate entity when conditioning one of its attributes.",
+          "use_attribute": "Condition one of the source's attributes instead of its state. You choose the attribute on the next step.",
           "name": "Leave blank to derive the name from the source.",
-          "attribute": "Leave blank to condition the source state.",
           "enable_limits": "Configure an optional minimum and/or maximum valid value.",
           "enable_calibration": "Correct readings using raw and corrected value pairs.",
           "enable_rounding": "Round the final output to a chosen number of decimal places.",
@@ -67,14 +69,21 @@
           "device_class": "Leave blank to inherit it from a state-based source.",
           "state_class": "Leave blank to inherit it from a state-based source.",
           "icon": "Leave blank to inherit it from a state-based source.",
-          "hide_source": "Hide the source entity in Home Assistant after creating this conditioned sensor. Cannot be used when conditioning an attribute.",
+          "hide_source": "Hide the source entity after creating this conditioned sensor. If you unhide it later, it stays visible. Cannot be used when conditioning an attribute.",
           "follow_source": "When on, this sensor is unavailable or unknown whenever the source is. When off, the last value is kept, as the original Calibration integration did.",
           "stale_after": "Optional. Mark this sensor unavailable when the source has not reported (changed or re-reported the same value) for this long. Leave blank or zero to disable."
         }
       },
+      "attribute": {
+        "title": "Choose the attribute",
+        "description": "Choose the attribute of `{source}` to condition.",
+        "data": {
+          "attribute": "Attribute"
+        }
+      },
       "value_limits": {
         "title": "Limit values",
-        "description": "Only the rules entered here are added. Choose whether out-of-range raw readings are rejected or pinned to the nearest limit.",
+        "description": "Only the rules entered here are added. Choose whether out-of-range raw readings are rejected or pinned to the nearest limit. Enter limits in the source's unit: {unit}.",
         "data": {
           "minimum": "Minimum valid value",
           "maximum": "Maximum valid value",
@@ -88,7 +97,7 @@
       },
       "calibration": {
         "title": "Calibrate values",
-        "description": "Enter raw and corrected value pairs, one pair per line.",
+        "description": "Enter raw and corrected value pairs, one pair per line, with raw values in the source's unit: {unit}.",
         "data": {
           "data_points_text": "Calibration points",
           "degree": "Polynomial degree"
@@ -122,7 +131,8 @@
       "invalid_configuration": "The selected behavior configuration is invalid.",
       "invalid_calibration": "Invalid calibration: {error}.",
       "limits_empty": "Enter a minimum, a maximum, or both.",
-      "minimum_above_maximum": "The minimum cannot be greater than the maximum."
+      "minimum_above_maximum": "The minimum cannot be greater than the maximum.",
+      "hide_source_with_attribute": "The source can't be hidden when conditioning one of its attributes."
     },
     "abort": {
       "already_configured": "This Signal Conditioner helper is already configured.",
@@ -157,6 +167,14 @@
     "disabled_source": {
       "title": "Signal Conditioner source entity is disabled",
       "description": "**{conditioner}** references **{source}**, but that entity is disabled in Home Assistant. Enable the source entity or choose a different source in the Signal Conditioner configuration or YAML. The issue clears automatically when the reference is valid."
+    },
+    "readings_rejected": {
+      "title": "Signal Conditioner rejects every reading",
+      "description": "Signal Conditioner **{conditioner}** has rejected every reading from `{source}` for {minutes} minutes, so it keeps showing an older value. The last reading, {value}, was rejected: {reason}.\n\nCheck the conditioner's value limits and calibration, and that the source reports numbers. This issue clears when a reading is accepted."
+    },
+    "unit_mismatch": {
+      "title": "Signal Conditioner can't convert its source's unit",
+      "description": "Signal Conditioner **{conditioner}** rejects every reading from `{source}`. The source now reports in {source_unit}, but the limits and calibration were entered in {input_unit}, and the two can't be converted into each other.\n\nChange the source back to {input_unit}, or update the limits and calibration for {source_unit} (for YAML, also set `input_unit: {source_unit}`). This issue clears once readings are accepted again."
     }
   }
 }

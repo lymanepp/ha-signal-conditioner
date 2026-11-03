@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 import logging
-import math
 import time
 from typing import Any, cast
 
@@ -50,10 +49,27 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .config import availability_from_data, pipeline_config_from_data
-from .const import CONF_HIDE_SOURCE, CONF_PRECISION, CONF_ROUNDING, CONF_STATE_CLASS
-from .pipeline import ConditioningPipeline, Disposition, WindowOutput
+from .const import (
+    CONF_CALIBRATION,
+    CONF_HIDE_SOURCE,
+    CONF_INPUT_UNIT,
+    CONF_PRECISION,
+    CONF_ROUNDING,
+    CONF_STATE_CLASS,
+    CONF_VALUE_LIMITS,
+)
+from .pipeline import (
+    ConditioningPipeline,
+    Converter,
+    Disposition,
+    PipelineResult,
+    WindowOutput,
+)
+from .rejections import RejectionMonitor
 from .source_health import SourceReferenceMonitor
-from .source_hiding import async_hide_source
+from .source_hiding import SOURCE_HIDDEN, async_hide_source, async_mark_source_hidden
+from .units import async_clear_unit_mismatch, async_report_unit_mismatch, unit_converter
+from .windows import next_window_end
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,7 +82,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up a Signal Conditioner sensor from a config entry."""
-    async_add_entities([SignalConditionerSensor(hass, entry)])
+    sensor = SignalConditionerSensor(hass, entry)
+    entry.runtime_data = sensor  # for diagnostics
+    async_add_entities([sensor])
 
 
 class SignalConditionerSensor(RestoreSensor):
@@ -94,6 +112,7 @@ class SignalConditionerSensor(RestoreSensor):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
         config = entry.data
+        self._entry = entry
         self._source_entity_id = config[CONF_SOURCE]
         self._source_attribute = config.get(CONF_ATTRIBUTE)
         self._hide_source = bool(config.get(CONF_HIDE_SOURCE))
@@ -106,7 +125,23 @@ class SignalConditionerSensor(RestoreSensor):
         # restart rather than a live reading.
         self._showing_restored = False
         self._source_event_generation = 0
+        # Limits and calibration are numbers in one unit: the source's unit
+        # when they were configured. Explicit, else learned from the source.
+        self._unit_sensitive = not self._source_attribute and (
+            CONF_VALUE_LIMITS in config or CONF_CALIBRATION in config
+        )
+        self._input_unit: str | None = config.get(CONF_INPUT_UNIT) or entry.options.get(
+            CONF_INPUT_UNIT
+        )
+        self._unit_issue_raised = False
         self._source_health = SourceReferenceMonitor(
+            hass,
+            entry.entry_id,
+            config[CONF_NAME],
+            self._source_entity_id,
+            on_confirmed_problem=self._async_source_confirmed_missing,
+        )
+        self.rejections = RejectionMonitor(
             hass, entry.entry_id, config[CONF_NAME], self._source_entity_id
         )
 
@@ -154,6 +189,7 @@ class SignalConditionerSensor(RestoreSensor):
             )
         )
         self._source_health.async_start(self.async_on_remove)
+        self.async_on_remove(self.rejections.async_stop)
         # Subscribe before the initial snapshot: source entities may appear or
         # change while this entity is being added, especially during reloads.
         # Do not await restoration until the source is being observed.
@@ -186,6 +222,10 @@ class SignalConditionerSensor(RestoreSensor):
             self._schedule_window(dt_util.utcnow())
             self.async_on_remove(self._cancel_window_timer)
         self.async_on_remove(self._cancel_stale_timer)
+        # Re-raised by the next reading if the mismatch remains.
+        self.async_on_remove(
+            lambda: async_clear_unit_mismatch(self.hass, self._entry.entry_id)
+        )
 
     async def _async_restore(self) -> None:
         """Show the last value from before the restart until the source reports."""
@@ -221,8 +261,18 @@ class SignalConditionerSensor(RestoreSensor):
     @callback
     def _ensure_source_hidden(self) -> None:
         """Hide the source once it is registered (it may register late)."""
-        if self._hide_source and not self._source_hidden:
-            self._source_hidden = async_hide_source(self.hass, self._source_entity_id)
+        if not self._hide_source or self._source_hidden:
+            return
+        if self._entry.source != SOURCE_IMPORT and self._entry.options.get(
+            SOURCE_HIDDEN
+        ):
+            # Hidden once already: if the user has unhidden it since, that
+            # choice stands.
+            self._source_hidden = True
+            return
+        self._source_hidden = async_hide_source(self.hass, self._source_entity_id)
+        if self._source_hidden and self._entry.source != SOURCE_IMPORT:
+            async_mark_source_hidden(self.hass, self._entry)
 
     @callback
     def _async_source_state_listener(self, event: Event[EventStateChangedData]) -> None:
@@ -255,9 +305,11 @@ class SignalConditionerSensor(RestoreSensor):
             return
         # Only an accepted reading proves the source is alive, as for changes.
         raw_value = self._raw_value(new_state)
+        conversion = self._unit_conversion(new_state.attributes)
         if (
             raw_value is not None
-            and self._pipeline.condition(raw_value).disposition
+            and not isinstance(conversion, str)
+            and self._pipeline.condition(raw_value, *conversion).disposition
             is not Disposition.REJECT
         ):
             self._schedule_stale()
@@ -286,7 +338,11 @@ class SignalConditionerSensor(RestoreSensor):
                 # Don't average readings taken in different units.
                 self._pipeline.reset()
 
-        result = self._pipeline.process(raw_value, time.monotonic())
+        conversion = self._unit_conversion(state.attributes)
+        if isinstance(conversion, str):
+            result = PipelineResult(Disposition.REJECT, reason=conversion)
+        else:
+            result = self._pipeline.process(raw_value, time.monotonic(), *conversion)
         if result.disposition is Disposition.REJECT:
             _LOGGER.debug(
                 "Signal Conditioner rejected %s from %s: %s",
@@ -294,12 +350,18 @@ class SignalConditionerSensor(RestoreSensor):
                 self._source_entity_id,
                 result.reason,
             )
+            self.rejections.record_rejected(
+                raw_value,
+                str(result.reason),
+                reported_elsewhere=isinstance(conversion, str),
+            )
             if unit_changed:
                 # The value showing is in the old unit: don't relabel it.
                 self._attr_native_value = None
                 if write_state:
                     self.async_write_ha_state()
             return
+        self.rejections.record_accepted()
         if (
             result.disposition is Disposition.PUBLISH
             or not self._has_value
@@ -314,17 +376,94 @@ class SignalConditionerSensor(RestoreSensor):
             self._schedule_stale()
 
     @callback
-    def _schedule_window(self, after: datetime) -> None:
-        """Schedule the next window end on a wall-clock boundary.
+    def _unit_conversion(
+        self, attributes: Mapping[str, Any]
+    ) -> tuple[Converter | None, Converter | None] | str:
+        """Return (into the input unit, out to the published unit) converters.
 
-        Boundaries are whole multiples of the duration since the Unix epoch
-        (UTC), so a 60 s window ends on the minute, a 1-hour window on the
-        hour, and reloads or restarts don't shift them.
+        Returns a rejection reason instead when the source's unit can't be
+        converted to the unit the limits and calibration were written in.
         """
-        duration = self._pipeline.config.window_duration
-        boundary = (math.floor(after.timestamp() / duration) + 1) * duration
+        if not self._unit_sensitive:
+            return None, None
+        source_unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        if self._input_unit is None:
+            if source_unit is None:
+                return None, None
+            self._learn_input_unit(source_unit)
+        if source_unit == self._input_unit:
+            self._clear_unit_issue()
+            return None, None
+        device_class = attributes.get(ATTR_DEVICE_CLASS)
+        convert_in = unit_converter(device_class, source_unit, self._input_unit)
+        # With an explicit unit, calibration defines the output unit; else
+        # the output follows the source's unit, so convert it back.
+        convert_out = (
+            None
+            if self._configured_unit is not None
+            else unit_converter(device_class, self._input_unit, source_unit)
+        )
+        if convert_in is None or (
+            self._configured_unit is None and convert_out is None
+        ):
+            assert self._input_unit is not None
+            if not self._unit_issue_raised:
+                self._unit_issue_raised = True
+                _LOGGER.warning(
+                    "Signal Conditioner '%s' rejects readings from %s: its unit "
+                    "%s can't be converted to %s, the unit its limits and "
+                    "calibration are in",
+                    self._attr_name,
+                    self._source_entity_id,
+                    source_unit,
+                    self._input_unit,
+                )
+                async_report_unit_mismatch(
+                    self.hass,
+                    self._entry.entry_id,
+                    name=str(self._attr_name),
+                    source=self._source_entity_id,
+                    source_unit=source_unit,
+                    input_unit=self._input_unit,
+                )
+            return f"unit {source_unit} can't be converted to {self._input_unit}"
+        self._clear_unit_issue()
+        return convert_in, convert_out
+
+    @callback
+    def _learn_input_unit(self, unit: str) -> None:
+        """Remember the unit of the first reading for entries without one.
+
+        Entries from before input units were recorded, and YAML entries
+        without ``input_unit``, assume the source's unit hasn't changed since
+        they were configured. Stored in options: a YAML import replaces data.
+        """
+        self._input_unit = unit
+        self.hass.config_entries.async_update_entry(
+            self._entry, options={**self._entry.options, CONF_INPUT_UNIT: unit}
+        )
+
+    @callback
+    def _clear_unit_issue(self) -> None:
+        if self._unit_issue_raised:
+            self._unit_issue_raised = False
+            async_clear_unit_mismatch(self.hass, self._entry.entry_id)
+
+    @callback
+    def _schedule_window(self, after: datetime) -> None:
+        """Schedule the next window end on a local clock boundary.
+
+        A 60 s window ends on the minute, a 1-hour window on the hour and a
+        1-day window at local midnight; reloads and restarts don't shift them.
+        """
         self._cancel_window = async_track_point_in_utc_time(
-            self.hass, self._async_window_end, dt_util.utc_from_timestamp(boundary)
+            self.hass,
+            self._async_window_end,
+            next_window_end(
+                after,
+                self._pipeline.config.window_duration,
+                dt_util.get_default_time_zone(),
+            ),
         )
 
     @callback
@@ -354,6 +493,16 @@ class SignalConditionerSensor(RestoreSensor):
         self._attr_available = True
         if write_state:
             self.async_write_ha_state()
+
+    @callback
+    def _async_source_confirmed_missing(self) -> None:
+        """Don't keep showing a value once the source is confirmed gone.
+
+        Matters after a restart: the restored value would otherwise show as
+        current indefinitely if the source never comes back.
+        """
+        if self._follow_source:
+            self._go_unavailable()
 
     @callback
     def _go_unavailable(self) -> None:

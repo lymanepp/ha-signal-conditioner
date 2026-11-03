@@ -90,7 +90,6 @@ async def test_one_source_can_have_several_conditioners(hass: HomeAssistant) -> 
             {
                 CONF_NAME: name,
                 CONF_SOURCE: SOURCE,
-                "attribute": "",
                 CONF_HIDE_SOURCE: False,
                 CONF_UNIT_OF_MEASUREMENT: "",
                 CONF_DEVICE_CLASS: "",
