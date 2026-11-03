@@ -68,6 +68,7 @@ from .const import (
     WINDOW_OUTPUT_MEAN,
 )
 from .pipeline import MAX_WINDOW_SECONDS, PipelineConfigurationError
+from .rejections import rejection_issue_id
 from .source_health import source_issue_id
 from .source_hiding import async_release_entry_source
 
@@ -394,6 +395,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Clean up the Repairs issue and source hiding of a deleted entry."""
+    """Clean up the Repairs issues and source hiding of a deleted entry."""
     async_delete_issue(hass, DOMAIN, source_issue_id(entry.entry_id))
+    async_delete_issue(hass, DOMAIN, rejection_issue_id(entry.entry_id))
     async_release_entry_source(hass, entry)

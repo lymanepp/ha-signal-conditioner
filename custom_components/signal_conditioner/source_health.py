@@ -43,9 +43,17 @@ class SourceReferenceMonitor:
     """
 
     def __init__(
-        self, hass: HomeAssistant, entry_id: str, name: str, source: str
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        name: str,
+        source: str,
+        *,
+        on_confirmed_problem: Callable[[], None] | None = None,
     ) -> None:
         self._hass = hass
+        # Called once a missing or disabled source is confirmed and reported.
+        self._on_confirmed_problem = on_confirmed_problem
         self._name = name
         self._source = source
         self._issue_id = source_issue_id(entry_id)
@@ -159,6 +167,8 @@ class SourceReferenceMonitor:
             problem,
             self._source,
         )
+        if self._on_confirmed_problem is not None:
+            self._on_confirmed_problem()
 
     @callback
     def _cancel_timer(self) -> None:

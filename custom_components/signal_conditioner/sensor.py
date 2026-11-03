@@ -51,6 +51,7 @@ from homeassistant.util import dt as dt_util
 from .config import availability_from_data, pipeline_config_from_data
 from .const import CONF_HIDE_SOURCE, CONF_PRECISION, CONF_ROUNDING, CONF_STATE_CLASS
 from .pipeline import ConditioningPipeline, Disposition
+from .rejections import RejectionMonitor
 from .source_health import SourceReferenceMonitor
 from .source_hiding import async_hide_source
 
@@ -63,7 +64,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up a Signal Conditioner sensor from a config entry."""
-    async_add_entities([SignalConditionerSensor(hass, entry)])
+    sensor = SignalConditionerSensor(hass, entry)
+    entry.runtime_data = sensor  # for diagnostics
+    async_add_entities([sensor])
 
 
 class SignalConditionerSensor(RestoreSensor):
@@ -104,6 +107,13 @@ class SignalConditionerSensor(RestoreSensor):
         self._showing_restored = False
         self._source_event_generation = 0
         self._source_health = SourceReferenceMonitor(
+            hass,
+            entry.entry_id,
+            config[CONF_NAME],
+            self._source_entity_id,
+            on_confirmed_problem=self._async_source_confirmed_missing,
+        )
+        self.rejections = RejectionMonitor(
             hass, entry.entry_id, config[CONF_NAME], self._source_entity_id
         )
 
@@ -143,6 +153,7 @@ class SignalConditionerSensor(RestoreSensor):
             )
         )
         self._source_health.async_start(self.async_on_remove)
+        self.async_on_remove(self.rejections.async_stop)
         # Subscribe before the initial snapshot: source entities may appear or
         # change while this entity is being added, especially during reloads.
         # Do not await restoration until the source is being observed.
@@ -283,12 +294,14 @@ class SignalConditionerSensor(RestoreSensor):
                 self._source_entity_id,
                 result.reason,
             )
+            self.rejections.record_rejected(raw_value, str(result.reason))
             if unit_changed:
                 # The value showing is in the old unit: don't relabel it.
                 self._attr_native_value = None
                 if write_state:
                     self.async_write_ha_state()
             return
+        self.rejections.record_accepted()
         if (
             result.disposition is Disposition.PUBLISH
             or not self._has_value
@@ -343,6 +356,16 @@ class SignalConditionerSensor(RestoreSensor):
         self._attr_available = True
         if write_state:
             self.async_write_ha_state()
+
+    @callback
+    def _async_source_confirmed_missing(self) -> None:
+        """Don't keep showing a value once the source is confirmed gone.
+
+        Matters after a restart: the restored value would otherwise show as
+        current indefinitely if the source never comes back.
+        """
+        if self._follow_source:
+            self._go_unavailable()
 
     @callback
     def _go_unavailable(self) -> None:

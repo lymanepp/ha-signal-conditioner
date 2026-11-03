@@ -157,6 +157,10 @@
     "disabled_source": {
       "title": "Signal Conditioner source entity is disabled",
       "description": "**{conditioner}** references **{source}**, but that entity is disabled in Home Assistant. Enable the source entity or choose a different source in the Signal Conditioner configuration or YAML. The issue clears automatically when the reference is valid."
+    },
+    "readings_rejected": {
+      "title": "Signal Conditioner rejects every reading",
+      "description": "Signal Conditioner **{conditioner}** has rejected every reading from `{source}` for {minutes} minutes, so it keeps showing an older value. The last reading, {value}, was rejected: {reason}.\n\nCheck the conditioner's value limits and calibration, and that the source reports numbers. This issue clears when a reading is accepted."
     }
   }
 }
