@@ -198,3 +198,54 @@ async def test_reconfigure_offers_the_current_attribute(hass: HomeAssistant) -> 
     assert result["step_id"] == "attribute"
     (key,) = result["data_schema"].schema
     assert key.default() == "current_temperature"
+
+
+async def test_new_source_takes_its_own_input_unit(hass: HomeAssistant) -> None:
+    """°F limits learned from the old source don't carry over to a new one."""
+    hass.states.async_set(SOURCE, "70", {"unit_of_measurement": "°F"})
+    hass.states.async_set("sensor.hygrometer", "40", {"unit_of_measurement": "%"})
+    entry = await _ui_entry(hass, value_limits={"minimum": 0, "maximum": 120})
+    assert entry.options["input_unit"] == "°F"  # learned
+
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        _form(**{CONF_SOURCE: "sensor.hygrometer", CONF_ENABLE_LIMITS: True}),
+    )
+    assert result["description_placeholders"]["unit"] == "%"
+    await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"minimum": 0, "maximum": 100}
+    )
+    await hass.async_block_till_done()
+    assert entry.data["input_unit"] == "%"
+    assert "input_unit" not in entry.options
+    assert hass.states.get("sensor.conditioned").state == "40.0"
+
+
+async def test_attribute_source_records_no_input_unit(hass: HomeAssistant) -> None:
+    hass.states.async_set(
+        "climate.hall",
+        "heat",
+        {"current_temperature": 21.5, "unit_of_measurement": "°C"},
+    )
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        _form(
+            **{
+                CONF_SOURCE: "climate.hall",
+                CONF_USE_ATTRIBUTE: True,
+                CONF_ENABLE_LIMITS: True,
+            }
+        ),
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ATTRIBUTE: "current_temperature"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"maximum": 50}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert "input_unit" not in result["data"]

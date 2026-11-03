@@ -83,7 +83,7 @@
       },
       "value_limits": {
         "title": "Limit values",
-        "description": "Only the rules entered here are added. Choose whether out-of-range raw readings are rejected or pinned to the nearest limit.",
+        "description": "Only the rules entered here are added. Choose whether out-of-range raw readings are rejected or pinned to the nearest limit. Enter limits in the source's unit: {unit}.",
         "data": {
           "minimum": "Minimum valid value",
           "maximum": "Maximum valid value",
@@ -97,7 +97,7 @@
       },
       "calibration": {
         "title": "Calibrate values",
-        "description": "Enter raw and corrected value pairs, one pair per line.",
+        "description": "Enter raw and corrected value pairs, one pair per line, with raw values in the source's unit: {unit}.",
         "data": {
           "data_points_text": "Calibration points",
           "degree": "Polynomial degree"
@@ -167,6 +167,14 @@
     "disabled_source": {
       "title": "Signal Conditioner source entity is disabled",
       "description": "**{conditioner}** references **{source}**, but that entity is disabled in Home Assistant. Enable the source entity or choose a different source in the Signal Conditioner configuration or YAML. The issue clears automatically when the reference is valid."
+    },
+    "readings_rejected": {
+      "title": "Signal Conditioner rejects every reading",
+      "description": "Signal Conditioner **{conditioner}** has rejected every reading from `{source}` for {minutes} minutes, so it keeps showing an older value. The last reading, {value}, was rejected: {reason}.\n\nCheck the conditioner's value limits and calibration, and that the source reports numbers. This issue clears when a reading is accepted."
+    },
+    "unit_mismatch": {
+      "title": "Signal Conditioner can't convert its source's unit",
+      "description": "Signal Conditioner **{conditioner}** rejects every reading from `{source}`. The source now reports in {source_unit}, but the limits and calibration were entered in {input_unit}, and the two can't be converted into each other.\n\nChange the source back to {input_unit}, or update the limits and calibration for {source_unit} (for YAML, also set `input_unit: {source_unit}`). This issue clears once readings are accepted again."
     }
   }
 }

@@ -31,6 +31,7 @@ CONF_MODE = "mode"
 CONF_AVAILABILITY = "availability"
 CONF_FOLLOW_SOURCE = "follow_source"
 CONF_STALE_AFTER = "stale_after"
+CONF_INPUT_UNIT = "input_unit"
 
 
 WINDOW_OUTPUT_MEAN = "mean"

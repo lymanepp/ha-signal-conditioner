@@ -16,6 +16,8 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
 )
 from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_UNIT_OF_MEASUREMENT,
     CONF_ATTRIBUTE,
     CONF_DEVICE_CLASS,
     CONF_ICON,
@@ -66,6 +68,7 @@ from .const import (
     CONF_ENABLE_WINDOW,
     CONF_FOLLOW_SOURCE,
     CONF_HIDE_SOURCE,
+    CONF_INPUT_UNIT,
     CONF_MAXIMUM,
     CONF_MINIMUM,
     CONF_MODE,
@@ -89,6 +92,7 @@ from .const import (
 )
 from .pipeline import MAX_WINDOW_SECONDS, LimitMode, PipelineConfigurationError
 from .source_hiding import async_update_hidden_source
+from .units import unit_converter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -353,6 +357,8 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
         self._enabled: set[str] = set()
         self._completed: set[str] = set()
         self._reconfigure_entry: ConfigEntry | None = None
+        # Unit the limits and calibration are entered in.
+        self._input_unit: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -435,6 +441,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 else self._defaults
             ),
             errors=errors,
+            description_placeholders=self._unit_placeholder(),
         )
 
     async def async_step_calibration(
@@ -469,7 +476,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 else self._defaults
             ),
             errors=errors,
-            description_placeholders=placeholders,
+            description_placeholders={**self._unit_placeholder(), **placeholders},
         )
 
     async def async_step_window(
@@ -577,6 +584,7 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["base"] = "invalid_configuration"
                 else:
                     self._completed.clear()
+                    self._input_unit = self._find_input_unit()
                     return await self._next_step()
         return self.async_show_form(
             step_id=step_id,
@@ -596,6 +604,37 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 er.async_get(self.hass), self._reconfigure_entry.entry_id
             )
         ]
+
+    def _find_input_unit(self) -> str | None:
+        """Return the unit limits and calibration values are entered in.
+
+        An existing conditioner keeps the unit its values were written in;
+        a new conditioner, or a new source, uses the source's current unit.
+        """
+        if CONF_USE_ATTRIBUTE in self._enabled:
+            return None  # attributes carry no unit
+        source = self._flow_data[CONF_SOURCE]
+        state = self.hass.states.get(source)
+        attributes = state.attributes if state else {}
+        current = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        entry = self._reconfigure_entry
+        # A new source's values are entered in its own unit.
+        if entry is not None and entry.data[CONF_SOURCE] == source:
+            stored = entry.data.get(CONF_INPUT_UNIT) or entry.options.get(
+                CONF_INPUT_UNIT
+            )
+            # Keep it while the source's unit converts to it; otherwise the
+            # old values no longer apply and are re-entered in the new unit.
+            if stored and (
+                current is None
+                or unit_converter(attributes.get(ATTR_DEVICE_CLASS), current, stored)
+                is not None
+            ):
+                return str(stored)
+        return str(current) if current else None
+
+    def _unit_placeholder(self) -> dict[str, str]:
+        return {"unit": self._input_unit or "no unit"}
 
     async def _next_step(self) -> ConfigFlowResult:
         if (
@@ -627,6 +666,10 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _finish(self) -> ConfigFlowResult:
         data = dict(self._flow_data)
+        if self._input_unit and (CONF_VALUE_LIMITS in data or CONF_CALIBRATION in data):
+            data[CONF_INPUT_UNIT] = self._input_unit
+        else:
+            data.pop(CONF_INPUT_UNIT, None)
         try:
             pipeline_config_from_data(data)
         except PipelineConfigurationError:
@@ -638,10 +681,14 @@ class SignalConditionerConfigFlow(ConfigFlow, domain=DOMAIN):
                 data_schema=_source_schema(data, exclude_entities=self._own_entities()),
                 errors={"base": "invalid_configuration"},
             )
-        if self._reconfigure_entry:
-            async_update_hidden_source(self.hass, self._reconfigure_entry, data)
+        if entry := self._reconfigure_entry:
+            async_update_hidden_source(self.hass, entry, data)
+            options = dict(entry.options)  # read after the hidden-source update
+            if data[CONF_SOURCE] != entry.data[CONF_SOURCE]:
+                # The unit learned from the old source doesn't apply.
+                options.pop(CONF_INPUT_UNIT, None)
             return self.async_update_reload_and_abort(
-                self._reconfigure_entry, title=data[CONF_NAME], data=data
+                entry, title=data[CONF_NAME], data=data, options=options
             )
         # No unique ID: one source may have several conditioners.
         return self.async_create_entry(title=data[CONF_NAME], data=data)
